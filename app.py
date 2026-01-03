@@ -36,7 +36,10 @@ def load_data():
     }
     
     agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'})
-    return agg_df.reset_index().sort_values('Hype Score', ascending=False)
+    # Add a selection column for the UI
+    agg_df = agg_df.reset_index()
+    agg_df['Select'] = False
+    return agg_df.sort_values('Hype Score', ascending=False)
 
 df = load_data()
 
@@ -50,7 +53,6 @@ if "selected_movie_id" not in st.session_state:
 st.sidebar.title("🔍 David's Filters")
 
 if df is not None:
-    # Navigation: Return Home
     if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
         st.session_state.selected_movie_id = None
         st.rerun()
@@ -68,7 +70,7 @@ if df is not None:
     all_genres = sorted(list(set([g.strip() for sublist in df['Genres'].dropna().str.split(',') for g in sublist])))
     selected_genres = st.sidebar.multiselect("Specific Genres", all_genres)
 
-    # Filtered Data for the Table
+    # Filtered Data
     filtered_df = df[
         (df['IMDb Rating'] >= min_rating) & 
         (df['IMDb Rating'] <= max_rating) &
@@ -87,14 +89,13 @@ if df is not None:
 
 # --- 4. PAGE LOGIC ---
 
-# If a movie is selected, show details
 if st.session_state.selected_movie_id:
+    # DETAIL PAGE
     movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
     m_id = str(movie['Const'])
     
     st.header(f"{movie['Title']} ({movie['Year']})")
     
-    # Watched Button
     if m_id in st.session_state.watched_ids:
         if st.button("✅ Watched (Click to unmark)"):
             st.session_state.watched_ids.remove(m_id)
@@ -120,23 +121,29 @@ if st.session_state.selected_movie_id:
     with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
-# Otherwise, show the table
 else:
+    # MAIN TABLE PAGE (Using Data Editor for selection)
     st.title("🎬 David's Movie Prioritizer")
-    st.write("💡 **Click a row** in the table to see full details and streaming info.")
+    st.write("💡 **Check the 'Select' box** next to a movie to view details.")
     
     if 'filtered_df' in locals() and filtered_df is not None:
-        # We use st.dataframe with selection mode enabled
-        event = st.dataframe(
-            filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']], 
-            hide_index=True, 
+        # st.data_editor is much more compatible with older Streamlit versions
+        edited_df = st.data_editor(
+            filtered_df[['Select', 'Title', 'Year', 'IMDb Rating', 'Hype Score']],
+            column_config={
+                "Select": st.column_config.CheckboxColumn("View", default=False),
+                "IMDb Rating": st.column_config.NumberColumn("Rating", format="%.1f ⭐"),
+            },
+            disabled=["Title", "Year", "IMDb Rating", "Hype Score"],
+            hide_index=True,
             use_container_width=True,
-            on_select="rerun",
-            selection_mode="single_row"
+            key="main_table"
         )
         
-        # If the user selects a row, update session state and rerun
-        if event.selection.rows:
-            selected_index = event.selection.rows[0]
-            st.session_state.selected_movie_id = filtered_df.iloc[selected_index]['Const']
+        # Check if any row was selected
+        selected_rows = edited_df[edited_df['Select'] == True]
+        if not selected_rows.empty:
+            # Find the ID from the original filtered_df using the Title (or index)
+            sel_title = selected_rows.iloc[0]['Title']
+            st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
             st.rerun()
