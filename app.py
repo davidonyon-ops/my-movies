@@ -51,8 +51,8 @@ def load_data():
     if 'Directors' in cols: agg_dict['Directors'] = 'first'
     if 'URL' in cols: agg_dict['URL'] = 'first'
     
-    # Identify Cast/Stars column
-    cast_col = next((c for c in ['Stars', 'Cast', 'Starring'] if c in cols), None)
+    # Identify Cast/Stars column - searching for all possible IMDb variations
+    cast_col = next((c for c in ['Stars', 'Cast', 'Starring', 'Cast Members'] if c in cols), None)
     if cast_col:
         agg_dict[cast_col] = 'first'
     
@@ -82,35 +82,30 @@ if "movie_choice" not in st.session_state:
 st.sidebar.title("🔍 David's Filters")
 
 if df is not None and not df.empty:
-    # Navigation: Reset to Master Table
+    # 1. Show Full Master List Button
     if st.sidebar.button("🏠 Show Full Master List", use_container_width=True):
         st.session_state.movie_choice = "--- Select a Movie ---"
         st.rerun()
 
+    # 2. Drill down for details (Now directly under the button)
+    # Note: We use the full df for the dropdown so you can find any movie even if filtered
+    movie_titles = ["--- Select a Movie ---"] + sorted(df['Title'].unique().tolist())
+    st.sidebar.selectbox("Drill down for details:", movie_titles, key="movie_choice")
+
+    # 3. Title Search (Now under the dropdown)
+    search_query = st.sidebar.text_input("Title Search:")
+
     st.sidebar.divider()
 
-    # Mood Presets
-    mood = st.sidebar.selectbox("Vibe Check", 
-                                ["Any", "Chill / Comedy", "Intense / Thriller", "Scary / Horror", "Action Packed"])
-    
-    mood_map = {
-        "Chill / Comedy": ["Comedy", "Romance", "Animation", "Family"],
-        "Intense / Thriller": ["Thriller", "Crime", "Mystery", "Drama"],
-        "Scary / Horror": ["Horror"],
-        "Action Packed": ["Action", "Adventure", "Sci-Fi"]
-    }
-
-    # Range Filters
+    # 4. Other Filters
     min_rating, max_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, (6.0, 10.0), 0.5)
     yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
-    # Search & Genre
     all_genres = sorted(list(set([g.strip() for sublist in df['Genres'].dropna().str.split(',') for g in sublist])))
     selected_genres = st.sidebar.multiselect("Specific Genres", all_genres)
-    search_query = st.sidebar.text_input("Title Search:")
 
-    # Apply Logic
+    # Apply Filtering Logic to the Table
     filtered_df = df[
         (df['IMDb Rating'] >= min_rating) & 
         (df['IMDb Rating'] <= max_rating) &
@@ -118,20 +113,14 @@ if df is not None and not df.empty:
         (df['Year'] <= year_range[1])
     ]
     
-    if mood != "Any":
-        filtered_df = filtered_df[filtered_df['Genres'].apply(lambda x: any(m in str(x) for m in mood_map[mood]))]
-    
     if selected_genres:
         filtered_df = filtered_df[filtered_df['Genres'].apply(lambda x: any(g in str(x) for g in selected_genres))]
         
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
-    st.sidebar.divider()
-    
-    # Detail Dropdown
-    movie_titles = ["--- Select a Movie ---"] + filtered_df['Title'].tolist()
-    st.sidebar.selectbox("Drill down for details:", movie_titles, key="movie_choice")
+else:
+    st.sidebar.info("Upload CSV files to enable filters.")
 
 # --- 3. PAGE LOGIC (DISPLAY) ---
 
@@ -159,8 +148,9 @@ elif st.session_state.movie_choice != "--- Select a Movie ---":
             st.write("**📂 Found in your lists:**")
             st.info(movie.get('Source List', 'N/A'))
 
+    # Renamed section to 'Additional Info'
         st.divider()
-        st.subheader("🇬🇧 Where to Watch in the UK")
+        st.subheader("🔗 Additional Info")
         
         btn1, btn2, btn3 = st.columns(3)
         with btn1:
