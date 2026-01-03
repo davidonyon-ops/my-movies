@@ -237,8 +237,6 @@ if selected_genres:
     filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
 
 # 4. Final Display
-st.title("🎬 My Movie Collection")
-st.write(f"Showing {len(filtered_df)} movies")
 st.dataframe(filtered_df, use_container_width=True)
     
 st.sidebar.divider()
@@ -349,21 +347,38 @@ if st.session_state.selected_movie_id:
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
 else:
-    # MAIN TABLE
+# MAIN TABLE
     st.title("🎬 David's Movie Prioritizer")
+    
     if filtered_df is not None:
-        display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
+        # 1. Added 'Genre' to the list so you can see the filter results
+        display_cols = ['Title', 'Year', 'Genre', 'IMDb Rating', 'Hype Score']
+        
+        # Ensure all columns exist before copying
+        existing_cols = [c for c in display_cols if c in filtered_df.columns]
+        display_df = filtered_df[existing_cols].copy()
+        
+        # 2. Add the selection checkbox
         display_df.insert(0, "View", False)
         
+        # 3. The Table (Editor)
         edited_df = st.data_editor(
             display_df,
-            column_config={"View": st.column_config.CheckboxColumn("View", default=False)},
-            disabled=['Title', 'Year', 'IMDb Rating', 'Hype Score'],
-            hide_index=True, use_container_width=True, key="main_table"
+            column_config={
+                "View": st.column_config.CheckboxColumn("View", default=False),
+                "IMDb Rating": st.column_config.NumberColumn(format="%.1f ⭐"),
+                "Hype Score": st.column_config.ProgressColumn(min_value=0, max_value=5)
+            },
+            disabled=['Title', 'Year', 'Genre', 'IMDb Rating', 'Hype Score'],
+            hide_index=True, 
+            use_container_width=True, 
+            key="main_table"
         )
         
+        # 4. Handle "View" selection
         selected_rows = edited_df[edited_df['View'] == True]
         if not selected_rows.empty:
             sel_title = selected_rows.iloc[0]['Title']
+            # Find the ID from the original filtered_df
             st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
             st.rerun()
