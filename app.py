@@ -14,13 +14,16 @@ SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4G
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
 
 # 3. Your Entry ID (the bit before =TEST, e.g., 'entry.123456789')
-ENTRY_ID = "entry.505487716"
+ENTRY_ID_CONST = "entry.505487716"
+ENTRY_ID_TITLE = "entry.1090297045" 
+ENTRY_ID_SOURCE = "entry.1247422407" 
 
 # --- 2. DATA LOADING ---
 @st.cache_data
+@st.cache_data(ttl=300)
 def load_imdb_data():
+    # A. Load your IMDb files from GitHub
     files = glob.glob("*.csv")
-    if not files: return None
     all_data = []
     for f in files:
         try:
@@ -29,18 +32,38 @@ def load_imdb_data():
             temp_df['Source List'] = f.replace('.csv', '')
             all_data.append(temp_df)
         except: continue
-    if not all_data: return None
     
-    full_df = pd.concat(all_data, ignore_index=True)
-    full_df['IMDb Rating'] = pd.to_numeric(full_df['IMDb Rating'], errors='coerce').fillna(0)
-    full_df['Year'] = pd.to_numeric(full_df['Year'], errors='coerce').fillna(0).astype(int)
+    master_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+
+    # B. Load Manual Entries from Google Sheet
+    try:
+        sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
+        sheet_df.columns = sheet_df.columns.str.strip()
+        
+        # Look for rows marked as "MANUAL"
+        if 'Const' in sheet_df.columns:
+            manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
+            manual_rows['Year'] = 2026 
+            manual_rows['IMDb Rating'] = 0.0
+            # Use 'Source' column if it exists, otherwise call it 'Manual'
+            manual_rows['Source List'] = manual_rows['Source'] if 'Source' in manual_rows.columns else "Manual Entry"
+            # Create a fake ID so the "Watched" button works for these too
+            manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
+            
+            master_df = pd.concat([master_df, manual_rows], ignore_index=True)
+    except:
+        pass # If sheet is empty, just use GitHub data
+
+    # C. Grouping and Hype Score
+    master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
+    master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    cols = full_df.columns
-    group_keys = [c for c in ['Const', 'Title', 'Year', 'IMDb Rating'] if c in cols]
-    agg_dict = {'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
-                'Genres': 'first', 'Directors': 'first', 'URL': 'first', 'Title': 'count'}
+    agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
+        'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
+        'IMDb Rating': 'max'
+    }).reset_index()
     
-    agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'}).reset_index()
+    agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
     return agg_df.sort_values('Hype Score', ascending=False)
 
 def get_watched_list():
@@ -74,6 +97,18 @@ def mark_as_watched_permanent(const_id):
             st.session_state.watched_ids.add(const_id)
             return True
         return False
+    except:
+        return False
+
+def add_manual_movie(title, source_name):
+    form_data = {
+        ENTRY_ID_TITLE: title, 
+        ENTRY_ID_SOURCE: source_name,
+        ENTRY_ID_CONST: "MANUAL"
+    }
+    try:
+        requests.post(FORM_URL, data=form_data)
+        return True
     except:
         return False
 
@@ -113,6 +148,22 @@ if df is not None:
         filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
+
+st.sidebar.divider()
+st.sidebar.subheader("➕ Quick Add Movie")
+
+with st.sidebar.form("add_movie_form", clear_on_submit=True):
+    new_title = st.text_input("Movie Title")
+    new_source = st.text_input("Where did you hear about it?")
+    
+    submitted = st.form_submit_button("Add to List")
+    
+    if submitted and new_title:
+        final_source = new_source if new_source else "Manual"
+        if add_manual_movie(new_title, final_source):
+            st.success(f"Added {new_title}!")
+            st.cache_data.clear() # Forces the app to see the new movie
+            st.rerun()
 
 # --- 5. PAGE LOGIC ---
 if st.session_state.selected_movie_id:
