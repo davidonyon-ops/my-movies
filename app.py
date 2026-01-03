@@ -228,12 +228,12 @@ if df is not None:
 
 # Title search filter
     if search_query:
-    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
+        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
 
 # Genre filter (The "Magic" part: checks if ANY of the selected genres are in the row)
     if selected_genres:
-    pattern = '|'.join(selected_genres)
-    filtered_df = filtered_df[filtered_df['Genre'].str.contains(pattern, case=False, na=False)]
+        pattern = '|'.join(selected_genres)
+        filtered_df = filtered_df[filtered_df['Genre'].str.contains(pattern, case=False, na=False)]
     
     st.sidebar.divider()
     
