@@ -28,43 +28,36 @@ def load_imdb_data():
             all_github_data.append(temp_df)
         except: continue
     
-    if all_github_data:
-        master_df = pd.concat(all_github_data, ignore_index=True)
-    else:
-        master_df = pd.DataFrame(columns=['Title', 'Year', 'IMDb Rating', 'Const', 'Source List'])
+    master_df = pd.concat(all_github_data, ignore_index=True) if all_github_data else pd.DataFrame()
 
-    # 2. GET MANUAL DATA (FROM GOOGLE SHEET)
+    # 2. GET MANUAL DATA (Position Based)
     try:
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-        # --- FIXED LOGIC FOR YOUR COLUMN NAMES ---
-        # We look for MANUAL in the 'Const' column
-        manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
+        # This finds rows where the 2nd column (Const) is "MANUAL"
+        # Using .iloc[:, 1] means "look at the second column regardless of its name"
+        is_manual = sheet_df.iloc[:, 1] == "MANUAL"
+        manual_entries = sheet_df[is_manual].copy()
         
-        if not manual_rows.empty:
-            # We must RENAME your 'Source' column to 'Source List' so the app can search it
-            # and ensure 'Title' is treated as the Title.
-            manual_rows = manual_rows.rename(columns={'Source': 'Source List'})
+        if not manual_entries.empty:
+            # Create a clean dataframe for the manual entries
+            # We assume: Col 1=Timestamp, Col 2=Const, Col 3=Title, Col 4=Source
+            manual_clean = pd.DataFrame()
+            manual_clean['Title'] = manual_entries.iloc[:, 2] # 3rd Column
+            manual_clean['Source List'] = manual_entries.iloc[:, 3] # 4th Column
+            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
+            manual_clean['Year'] = 2026
+            manual_clean['IMDb Rating'] = 0.0
             
-            manual_rows['Year'] = 2026
-            manual_rows['IMDb Rating'] = 0.0
-            
-            # Create a unique ID for these manual entries
-            # We use the Title column to make a unique ID
-            manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
-            
-            # This merges GitHub and Google Sheet data together
-            master_df = pd.concat([master_df, manual_rows], ignore_index=True)
-            
+            master_df = pd.concat([master_df, manual_clean], ignore_index=True)
     except Exception as e:
-        st.sidebar.error(f"Sheet Sync Error: {e}")
+        st.sidebar.error(f"Sync Error: {e}")
 
     # 3. CLEANING & HYPE SCORE
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    # We group them so duplicates across lists show a higher Hype Score
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
         'IMDb Rating': 'max'
