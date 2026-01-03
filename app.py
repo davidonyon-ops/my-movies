@@ -242,7 +242,7 @@ st.dataframe(filtered_df)
     
 st.sidebar.divider()
     
-    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
+hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
     
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
     selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
