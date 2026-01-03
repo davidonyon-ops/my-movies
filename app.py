@@ -2,22 +2,22 @@ import streamlit as st
 import pandas as pd
 import glob
 import requests
-import time
+import time  # Fixed: Moved to the top so all functions can see it
 from imdb import Cinemagoer
 
-# --- 1. SETTINGS & CONFIG ---
+# Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
 
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv&gid=2013918688"
+# --- 1. SETTINGS ---
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv&gid=2013918688#gid=2013918688"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
 ENTRY_ID_CONST = "entry.505487716"
 ENTRY_ID_TITLE = "entry.1090297045" 
 ENTRY_ID_SOURCE = "entry.1247422407" 
-OMDB_API_KEY = "2035a709" 
 ia = Cinemagoer()
+OMDB_API_KEY = "2035a709" 
 
-# --- 2. FUNCTIONS ---
-
+# --- 2. DATA LOADING ---
 @st.cache_data(ttl=300)
 def load_imdb_data():
     files = glob.glob("*.csv")
@@ -32,178 +32,224 @@ def load_imdb_data():
     
     master_df = pd.concat(all_github_data, ignore_index=True) if all_github_data else pd.DataFrame()
 
+    # 2. GET MANUAL DATA
     try:
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
+        
+        # Look for "MANUAL" in the 2nd column
         manual_entries = sheet_df[sheet_df.iloc[:, 1] == "MANUAL"].copy()
         
         if not manual_entries.empty:
-            titles = manual_entries.iloc[:, 2].astype(str)
-            source_col = manual_entries.iloc[:, 3].astype(str)
-            mask = titles.str.lower() != 'title'
-            
             manual_clean = pd.DataFrame()
-            manual_clean['Title'] = titles[mask]
-            parts = source_col[mask].str.split(' | ')
+            # 1. Get Title from the 3rd column
+            manual_clean['Title'] = manual_entries.iloc[:, 2] 
             
-            manual_clean['Source List'] = parts.str[0]
-            manual_clean['Year'] = pd.to_numeric(parts.str[1], errors='coerce').fillna(2026).astype(int)
-            manual_clean['IMDb Rating'] = pd.to_numeric(parts.str[2].str.replace('⭐', ''), errors='coerce').fillna(0.0)
-            manual_clean['Const'] = parts.str[3]
-            manual_clean['Genre'] = parts.str[4].fillna("N/A")
-            manual_clean['Director'] = parts.str[5].fillna("N/A")
-            manual_clean['Actors'] = parts.str[6].fillna("N/A")
+            # 2. Get the full "Smart Source" string from the 4th column
+            # This variable MUST be named source_col for the lines below to work
+            source_col = manual_entries.iloc[:, 3].astype(str)
             
+            # 3. Extract the actual Source (the text BEFORE the first | )
+            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
+            
+            # 4. Extract Year (The 4 digits between pipes)
+            manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
+            
+            # 5. Extract Rating (The numbers before the ⭐)
+            manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
+            
+            # 6. Create the ID
+            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
+            
+            # 7. Merge with the GitHub data
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
-    except: pass
+            
+    except Exception as e:
+        st.sidebar.error(f"Sync Error: {e}")
 
-    for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year']:
-        if col not in master_df.columns: master_df[col] = "N/A"
-
+    # 3. CLEANING & HYPE SCORE
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
-
+    
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
-        'IMDb Rating': 'max',
-        'Genre': 'first',
-        'Director': 'first',
-        'Actors': 'first'
+        'IMDb Rating': 'max'
     }).reset_index()
-
+    
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
     return agg_df.sort_values('Hype Score', ascending=False)
 
 def get_watched_list():
     try:
-        watched_df = pd.read_csv(SHEET_CSV_URL + f"&cache={int(time.time())}")
-        return set(watched_df['Const'].astype(str).str.strip().unique().tolist())
-    except: return set()
+        cache_buster = f"&cache_bust={int(time.time())}"
+        watched_df = pd.read_csv(SHEET_CSV_URL + cache_buster)
+        watched_df.columns = watched_df.columns.str.strip()
+        
+        if 'Const' in watched_df.columns:
+            watched_ids = watched_df['Const'].astype(str).str.strip().unique().tolist()
+            return set(watched_ids)
+        return set()
+    except:
+        return set()
 
 def mark_as_watched_permanent(const_id):
+    # Fixed: Updated to use ENTRY_ID_CONST instead of ENTRY_ID
+    form_data = {ENTRY_ID_CONST: const_id} 
     try:
-        requests.post(FORM_URL, data={ENTRY_ID_CONST: const_id})
-        return True
-    except: return False
+        response = requests.post(FORM_URL, data=form_data)
+        if response.status_code == 200:
+            st.session_state.watched_ids.add(const_id)
+            return True
+        return False
+    except:
+        return False
 
 def add_manual_movie(title, source_name):
+    # 1. LIVE SEARCH IMDB
     try:
-        url = f"http://www.omdbapi.com/?t={title}&apikey={OMDB_API_KEY}"
-        data = requests.get(url).json()
-        if data.get("Response") == "True":
-            smart_source = f"{source_name} | {data.get('Year')[:4]} | {data.get('imdbRating')}⭐ | {data.get('imdbID')} | {data.get('Genre')} | {data.get('Director')} | {data.get('Actors')}"
-            requests.post(FORM_URL, data={ENTRY_ID_TITLE: title, ENTRY_ID_SOURCE: smart_source, ENTRY_ID_CONST: "MANUAL"})
-            return True
-    except: pass
-    return False
+        search = ia.search_movie(title)
+        if search:
+            movie_id = search[0].movieID
+            live_movie = ia.get_movie(movie_id)
+            live_rating = live_movie.get('rating', 0.0)
+            live_year = live_movie.get('year', 2026)
+        else:
+            live_rating = 0.0
+            live_year = 2026
+    except:
+        live_rating = 0.0
+        live_year = 2026
 
-# --- 3. DATA INITIALIZATION ---
+    # 2. SEND TO GOOGLE FORM
+    # Note: Ensure your form has spots for these!
+    form_data = {
+        ENTRY_ID_TITLE: title, 
+        ENTRY_ID_SOURCE: source_name,
+        ENTRY_ID_CONST: "MANUAL",
+        "entry.RATING_ID": live_rating,  # Add your Entry ID for Rating
+        "entry.YEAR_ID": live_year      # Add your Entry ID for Year
+    }
+    
+    try:
+        requests.post(FORM_URL, data=form_data)
+        return True
+    except:
+        return False
+
+# --- 3. INITIALIZATION ---
 df = load_imdb_data()
-
 if "watched_ids" not in st.session_state:
     st.session_state.watched_ids = get_watched_list()
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
-# 1. FIX GENRE LIST (Scan EVERYTHING)
-all_genres = []
-for g in df['Genre'].astype(str):
-    if g and g != "N/A" and g != "nan":
-        parts = [x.strip() for x in g.split(',')]
-        all_genres.extend(parts)
-genre_options = sorted(list(set(all_genres)))
-
-# 2. PREPARE SOURCE LISTS
-csv_lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-dropdown_sources = ["TikTok", "YouTube", "Friend Recommendation", "Manual Entry"] + csv_lists
-
-# --- 4. SIDEBAR FILTERS ---
+# --- 4. SIDEBAR ---
 st.sidebar.title("🔍 David's Filters")
-
-search_query = st.sidebar.text_input("Search by Title:", key="filter_search")
-selected_genres = st.sidebar.multiselect("Filter by Genre:", options=genre_options)
-selected_lists = st.sidebar.multiselect("Filter by CSV/List:", options=csv_lists)
-min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 5.0, 0.5)
-yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
-year_range = st.sidebar.slider("Year Range", yr_min, yr_max, (yr_min, yr_max))
-hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
-
-# APPLY FILTERS
-filtered_df = df[
-    (df['IMDb Rating'] >= min_rating) & 
-    (df['Year'] >= year_range[0]) & 
-    (df['Year'] <= year_range[1])
-].copy()
-
-if hide_watched:
-    filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
-if search_query:
-    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
-if selected_genres:
-    pattern = '|'.join(selected_genres)
-    filtered_df = filtered_df[filtered_df['Genre'].str.contains(pattern, case=False, na=False)]
-if selected_lists:
-    filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
-
-st.sidebar.divider()
-st.sidebar.subheader("➕ Add New Movie")
-
-# COMBO SOURCE PICKER (Dropdown + Manual Override)
-selected_source = st.sidebar.selectbox("Pick Existing Source:", dropdown_sources)
-custom_source = st.sidebar.text_input("OR Type New Source (Leave blank to use above):")
-final_source = custom_source if custom_source else selected_source
-
-new_title = st.sidebar.text_input("Movie Title to Search:", key="add_search")
-if st.sidebar.button("Search & Add"):
-    if new_title:
-        if add_manual_movie(new_title, final_source):
-            st.sidebar.success(f"Added {new_title}!")
-            st.cache_data.clear()
-            st.rerun()
-
-# --- 5. MAIN DISPLAY ---
-if st.session_state.selected_movie_id:
-    # DETAIL PAGE
-    movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
-    st.header(f"{movie['Title']} ({movie['Year']})")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Rating", f"{movie['IMDb Rating']} ⭐")
-        st.write(f"**Director:** {movie['Director']}")
-        st.write(f"**Genre:** {movie['Genre']}")
-    with col2:
-        st.metric("Hype", f"{movie['Hype Score']} Lists")
-        if st.button("👁️ Mark as Watched"):
-            if mark_as_watched_permanent(movie['Const']):
-                st.rerun()
-    
-    st.divider()
-    if st.button("⬅️ Back to List"):
+if df is not None:
+    if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
         st.session_state.selected_movie_id = None
         st.rerun()
 
+    search_query = st.sidebar.text_input("Title Search:")
+    st.sidebar.divider()
+    
+    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
+    
+    lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
+    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
+    min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
+    yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
+    year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
+
+    filtered_df = df[
+        (df['IMDb Rating'] >= min_rating) & 
+        (df['Year'] >= year_range[0]) & (df['Year'] <= year_range[1])
+    ].copy()
+
+    if hide_watched:
+        filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
+    if selected_lists:
+        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
+    if search_query:
+        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
+
+st.sidebar.divider()
+st.sidebar.subheader("➕ Quick Add Movie")
+
+manual_source = st.sidebar.text_input("Source:", value="Manual")
+search_query = st.sidebar.text_input("Movie Title:", key="omdb_search")
+
+if st.sidebar.button("Search & Add"):
+    if search_query and OMDB_API_KEY != "YOUR_API_KEY_HERE":
+        # We talk directly to the OMDb API
+        url = f"http://www.omdbapi.com/?t={search_query}&apikey={OMDB_API_KEY}"
+        response = requests.get(url).json()
+        
+        if response.get("Response") == "True":
+            title = response.get("Title")
+            year = response.get("Year")[:4] # Gets just the 2024 part
+            rating = response.get("imdbRating", "0.0")
+            
+            # Pack it exactly how our loader likes it
+            smart_source = f"{manual_source} | {year} | {rating}⭐"
+            
+            if add_manual_movie(title, smart_source):
+                st.sidebar.success(f"Found & Added: {title} ({year}) - {rating}⭐")
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            st.sidebar.error("Movie not found in OMDb database.")
+    else:
+        st.sidebar.warning("Please enter a title and your API Key.")
+
+# --- 5. PAGE LOGIC ---
+if st.session_state.selected_movie_id:
+    # DETAIL PAGE
+    movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
+    m_id = str(movie['Const'])
+    
+    st.header(f"{movie['Title']} ({movie['Year']})")
+    
+    if m_id in st.session_state.watched_ids:
+        st.success("✅ You have watched this movie. Lets keep it goin!")
+    else:
+        if st.button("👁️ Watched"):
+            if mark_as_watched_permanent(m_id):
+                st.toast("Saved to Google Sheets!")
+                st.rerun()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
+        st.write(f"**🎬 Director:** {movie.get('Directors', 'N/A')}")
+        st.write(f"**🎭 Genres:** {movie.get('Genres', 'N/A')}")
+    with col2:
+        st.metric("Hype Score", f"{movie['Hype Score']} Lists")
+        st.info(f"**📂 Lists:** {movie.get('Source List', 'N/A')}")
+
+    st.divider()
+    st.subheader("🔗 Additional Info")
+    b1, b2, b3 = st.columns(3)
+    with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/" if not str(movie['Const']).startswith('M_') else "#", use_container_width=True)
+    with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
+    with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
+
 else:
+    # MAIN TABLE
     st.title("🎬 David's Movie Prioritizer")
-    
-    st.write(f"Showing {len(filtered_df)} movies")
-    
-    display_df = filtered_df[['Title', 'Year', 'Genre', 'IMDb Rating', 'Hype Score']].copy()
-    display_df.insert(0, "View", False)
-    
-    edited_df = st.data_editor(
-        display_df,
-        column_config={
-            "View": st.column_config.CheckboxColumn("View", default=False),
-            "IMDb Rating": st.column_config.NumberColumn(format="%.1f ⭐"),
-            "Hype Score": st.column_config.ProgressColumn(min_value=0, max_value=5)
-        },
-        disabled=['Title', 'Year', 'Genre', 'IMDb Rating', 'Hype Score'],
-        hide_index=True, use_container_width=True, key="main_table"
-    )
-    
-    selected_rows = edited_df[edited_df['View'] == True]
-    if not selected_rows.empty:
-        sel_title = selected_rows.iloc[0]['Title']
-        st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
-        st.rerun()
+    if filtered_df is not None:
+        display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
+        display_df.insert(0, "View", False)
+        
+        edited_df = st.data_editor(
+            display_df,
+            column_config={"View": st.column_config.CheckboxColumn("View", default=False)},
+            disabled=['Title', 'Year', 'IMDb Rating', 'Hype Score'],
+            hide_index=True, use_container_width=True, key="main_table"
+        )
+        
+        selected_rows = edited_df[edited_df['View'] == True]
+        if not selected_rows.empty:
+            sel_title = selected_rows.iloc[0]['Title']
+            st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
+            st.rerun()
