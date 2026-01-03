@@ -67,6 +67,10 @@ def load_imdb_data():
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
+    for col in ['Genre', 'Director', 'Actors']:
+        if col not in master_df.columns:
+            master_df[col] = "N/A"
+    
     # Grouping logic
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
