@@ -40,9 +40,9 @@ def load_imdb_data():
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-                # Temporary debug line - add this inside load_imdb_data
-st.sidebar.write("Columns found in Sheet:", list(sheet_df.columns))
-st.sidebar.write("Rows with MANUAL:", len(sheet_df[sheet_df['Const'] == "MANUAL"]))
+        # Temporary debug line - add this inside load_imdb_data
+        st.sidebar.write("Columns found in Sheet:", list(sheet_df.columns))
+        st.sidebar.write("Rows with MANUAL:", len(sheet_df[sheet_df['Const'] == "MANUAL"]))
         
         # Look for rows marked as "MANUAL"
         if 'Const' in sheet_df.columns:
