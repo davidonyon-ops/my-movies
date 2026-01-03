@@ -2,18 +2,14 @@ import streamlit as st
 import pandas as pd
 import glob
 import requests
+import time  # Fixed: Moved to the top so all functions can see it
 
 # Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
 
-# --- 1. SETTINGS (ACTION REQUIRED) ---
-# 1. Your Google Sheet CSV Link (ends in /export?format=csv)
+# --- 1. SETTINGS ---
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv&gid=2013918688#gid=2013918688"
-
-# 2. Your Google Form Submission URL (ends in /formResponse)
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
-
-# 3. Your Entry ID (the bit before =TEST, e.g., 'entry.123456789')
 ENTRY_ID_CONST = "entry.505487716"
 ENTRY_ID_TITLE = "entry.1090297045" 
 ENTRY_ID_SOURCE = "entry.1247422407" 
@@ -39,25 +35,26 @@ def load_imdb_data():
 
     # 2. GET MANUAL DATA (FROM GOOGLE SHEET)
     try:
-        # This line fetches your sheet
+        # Fetching the sheet with a cache buster
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-        # This line looks for your "Quick Add" movies
-        manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
-        
-        if not manual_rows.empty:
-            manual_rows['Year'] = 2026
-            manual_rows['IMDb Rating'] = 0.0
-            # Matches 'Source' column from sheet to 'Source List' in app
-            manual_rows['Source List'] = manual_rows['Source'] if 'Source' in manual_rows.columns else "Manual Entry"
-            # Creates a temporary ID so you can 'Watch' it
-            manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
+        # Filter for rows where Const is "MANUAL"
+        if 'Const' in sheet_df.columns:
+            manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
             
-            # This merges GitHub and Google Sheet data together
-            master_df = pd.concat([master_df, manual_rows], ignore_index=True)
-    except:
-        pass # If sheet fails, app just uses GitHub data
+            if not manual_rows.empty:
+                # Ensure the manual rows have the columns the app expects
+                manual_rows['Year'] = 2026
+                manual_rows['IMDb Rating'] = 0.0
+                # Use 'Source' column from form, or default to 'Manual'
+                manual_rows['Source List'] = manual_rows['Source'] if 'Source' in manual_rows.columns else "Manual Entry"
+                # Create a unique ID for these manual entries
+                manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
+                
+                master_df = pd.concat([master_df, manual_rows], ignore_index=True)
+    except Exception as e:
+        pass # Silently fail and use GitHub data if sheet is unavailable
 
     # 3. CLEANING & HYPE SCORE
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
@@ -73,29 +70,20 @@ def load_imdb_data():
 
 def get_watched_list():
     try:
-        # 1. We add a random number to the URL to force Google to give us the freshest data
-        import time
         cache_buster = f"&cache_bust={int(time.time())}"
-        
-        # 2. Read the CSV from the sheet
         watched_df = pd.read_csv(SHEET_CSV_URL + cache_buster)
+        watched_df.columns = watched_df.columns.str.strip()
         
-        # 3. Clean the data: Remove spaces and make sure everything is a string
         if 'Const' in watched_df.columns:
-            # .strip() removes any accidental spaces before or after the ID
             watched_ids = watched_df['Const'].astype(str).str.strip().unique().tolist()
             return set(watched_ids)
-        else:
-            # This helps us debug if the header is wrong
-            st.warning(f"Column 'Const' not found. Available columns: {list(watched_df.columns)}")
-            return set()
-    except Exception as e:
-        st.error(f"Error reading watched list: {e}")
+        return set()
+    except:
         return set()
 
 def mark_as_watched_permanent(const_id):
-    # This sends the ID to your Google Form
-    form_data = {ENTRY_ID: const_id} 
+    # Fixed: Updated to use ENTRY_ID_CONST instead of ENTRY_ID
+    form_data = {ENTRY_ID_CONST: const_id} 
     try:
         response = requests.post(FORM_URL, data=form_data)
         if response.status_code == 200:
@@ -160,14 +148,13 @@ st.sidebar.subheader("➕ Quick Add Movie")
 with st.sidebar.form("add_movie_form", clear_on_submit=True):
     new_title = st.text_input("Movie Title")
     new_source = st.text_input("Where did you hear about it?")
-    
     submitted = st.form_submit_button("Add to List")
     
     if submitted and new_title:
         final_source = new_source if new_source else "Manual"
         if add_manual_movie(new_title, final_source):
             st.success(f"Added {new_title}!")
-            st.cache_data.clear() # Forces the app to see the new movie
+            st.cache_data.clear() 
             st.rerun()
 
 # --- 5. PAGE LOGIC ---
@@ -184,7 +171,6 @@ if st.session_state.selected_movie_id:
         if st.button("👁️ Watched"):
             if mark_as_watched_permanent(m_id):
                 st.toast("Saved to Google Sheets!")
-                # Give the sheet a second to update before refreshing
                 st.rerun()
 
     col1, col2 = st.columns(2)
@@ -199,7 +185,7 @@ if st.session_state.selected_movie_id:
     st.divider()
     st.subheader("🔗 Additional Info")
     b1, b2, b3 = st.columns(3)
-    with b1: st.link_button("🎥 IMDb", movie.get('URL', '#'), use_container_width=True)
+    with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/" if not str(movie['Const']).startswith('M_') else "#", use_container_width=True)
     with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
