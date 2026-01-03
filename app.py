@@ -41,32 +41,21 @@ def load_imdb_data():
         
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
-            manual_clean['Title'] = manual_entries.iloc[:, 2] # 3rd Column
-            manual_clean['Source List'] = manual_entries.iloc[:, 3] # 4th Column
+            manual_clean['Title'] = manual_entries.iloc[:, 2] 
+            source_col = manual_entries.iloc[:, 3].astype(str)
+            
+            # 1. Extract Year (The 4 digits between the | symbols)
+            manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
+            
+            # 2. Extract Rating (The numbers before the ⭐)
+            manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
+            
+            # 3. Keep the Source List clean for the UI
+            manual_clean['Source List'] = source_col
+            
             manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
-            
-            # --- THE AUTO RATING LOGIC ---
-            ratings = []
-            years = []
-            for title in manual_clean['Title']:
-                try:
-                    # Search IMDb for this title
-                    search = ia.search_movie(title)
-                    if search:
-                        m = ia.get_movie(search[0].movieID)
-                        ratings.append(m.get('rating', 0.0))
-                        years.append(m.get('year', 2026))
-                    else:
-                        ratings.append(0.0)
-                        years.append(2026)
-                except:
-                    ratings.append(0.0)
-                    years.append(2026)
-            
-            manual_clean['IMDb Rating'] = ratings
-            manual_clean['Year'] = years
-            
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
+            
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
 
@@ -179,17 +168,32 @@ if df is not None:
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-with st.sidebar.form("add_movie_form", clear_on_submit=True):
-    new_title = st.text_input("Movie Title")
-    new_source = st.text_input("Where did you hear about it?")
-    submitted = st.form_submit_button("Add to List")
-    
-    if submitted and new_title:
-        final_source = new_source if new_source else "Manual"
-        if add_manual_movie(new_title, final_source):
-            st.success(f"Added {new_title}!")
-            st.cache_data.clear() 
-            st.rerun()
+search_input = st.sidebar.text_input("Search IMDb to add:", key="movie_search_box")
+
+if search_input:
+    with st.sidebar.status("Searching IMDb...", expanded=True) as status:
+        results = ia.search_movie(search_input)[:5]
+        
+        if results:
+            for movie in results:
+                title = movie.get('title')
+                year = movie.get('year', '????')
+                m_id = movie.movieID
+                
+                if st.button(f"✅ {title} ({year})", key=f"btn_{m_id}", use_container_width=True):
+                    # Fetch full details for the rating
+                    full_movie = ia.get_movie(m_id)
+                    rating = full_movie.get('rating', 0.0)
+                    
+                    # We pack Year and Rating into the Source field
+                    # Example format: "Manual | 2022 | 8.5⭐"
+                    smart_source = f"Manual | {year} | {rating}⭐"
+                    
+                    if add_manual_movie(title, smart_source):
+                        st.sidebar.success(f"Added {title}!")
+                        st.cache_data.clear()
+                        st.rerun()
+            status.update(label="Select a movie above", state="complete")
 
 # --- 5. PAGE LOGIC ---
 if st.session_state.selected_movie_id:
