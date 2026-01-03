@@ -15,13 +15,17 @@ def load_data():
     all_data = []
     for f in files:
         try:
-            # IMDb uses latin1 encoding for their CSV exports
+            # Standard IMDb export encoding
             temp_df = pd.read_csv(f, encoding='latin1')
-            temp_df.columns = [c.strip() for c in temp_df.columns]
-            # Track the original file name as the "List Source"
+            
+            # CLEAN COLUMN NAMES: This removes hidden characters and spaces
+            temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
+            
+            # Add Source
             temp_df['Source List'] = f.replace('.csv', '')
             all_data.append(temp_df)
         except Exception as e:
+            st.warning(f"Could not read {f}: {e}")
             continue
     
     if not all_data:
@@ -29,26 +33,43 @@ def load_data():
 
     full_df = pd.concat(all_data, ignore_index=True)
     
-    # Standardize Numeric Data
+    # 1. Standardize Numeric Columns
     full_df['IMDb Rating'] = pd.to_numeric(full_df['IMDb Rating'], errors='coerce').fillna(0)
     full_df['Year'] = pd.to_numeric(full_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    # Identify the 'Cast/Stars' column (IMDb labels this 'Stars')
-    cast_col = 'Stars' if 'Stars' in full_df.columns else 'Cast' if 'Cast' in full_df.columns else None
-
-    # Aggregate: This combines duplicates across lists and calculates the Hype Score
-    agg_df = full_df.groupby(['Const', 'Title', 'Year', 'IMDb Rating']).agg({
-        'Source List': lambda x: ", ".join(sorted(set(x))),
-        'Genres': 'first',
-        'Directors': 'first',
-        cast_col: 'first' if cast_col else lambda x: "N/A",
-        'URL': 'first',
-        'Title': 'count' 
-    }).rename(columns={'Title': 'Hype Score', cast_col: 'Actors'}).reset_index()
+    # 2. DYNAMICALLY Identify existing columns to prevent KeyErrors
+    cols = full_df.columns
+    group_cols = [c for c in ['Const', 'Title', 'Year', 'IMDb Rating'] if c in cols]
     
-    return agg_df.sort_values('Hype Score', ascending=False)
+    # Ensure Title is in group_cols; if 'Const' is missing, use Title as ID
+    if 'Title' not in group_cols:
+        return None # Critical failure if Title is missing
 
-df = load_data()
+    # Build the aggregation dictionary safely
+    agg_dict = {}
+    if 'Source List' in cols: agg_dict['Source List'] = lambda x: ", ".join(sorted(set(x.astype(str))))
+    if 'Genres' in cols: agg_dict['Genres'] = 'first'
+    if 'Directors' in cols: agg_dict['Directors'] = 'first'
+    if 'URL' in cols: agg_dict['URL'] = 'first'
+    
+    # Look for the cast column
+    cast_col = next((c for c in ['Stars', 'Cast', 'Starring'] if c in cols), None)
+    if cast_col:
+        agg_dict[cast_col] = 'first'
+    
+    # Add the Hype Score counter
+    agg_dict['Title'] = 'count'
+
+    # 3. Perform the Aggregation
+    agg_df = full_df.groupby(group_cols).agg(agg_dict).rename(columns={'Title': 'Hype Score'})
+    
+    # Rename Cast/Stars to 'Actors' if found
+    if cast_col:
+        agg_df = agg_df.rename(columns={cast_col: 'Actors'})
+    else:
+        agg_df['Actors'] = "N/A"
+        
+    return agg_df.reset_index().sort_values('Hype Score', ascending=False)
 
 # --- 2. SIDEBAR FILTERS ---
 st.sidebar.title("🔍 Filters & Moods")
