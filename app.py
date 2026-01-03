@@ -129,6 +129,19 @@ def add_manual_movie(title, source_name):
     except:
         return False
 
+def get_unique_sources(master_df):
+    # 1. Start with a default list
+    sources = ["Manual", "TikTok", "YouTube", "Friend Recommendation"]
+    
+    # 2. Add sources from the master dataframe (including your CSV names)
+    if not master_df.empty:
+        existing_sources = master_df['Source List'].unique().tolist()
+        sources.extend(existing_sources)
+    
+    # 3. Clean up: Remove duplicates and sort alphabetically
+    sources = sorted(list(set([str(s).strip() for s in sources if s])))
+    return sources
+
 # --- 3. INITIALIZATION ---
 df = load_imdb_data()
 if "watched_ids" not in st.session_state:
@@ -166,11 +179,25 @@ if df is not None:
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
+# First, get the list of available sources from the data we already loaded
+available_sources = get_unique_sources(df)
+
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-manual_source = st.sidebar.text_input("Source:", value="Manual")
-search_query = st.sidebar.text_input("Movie Title:", key="omdb_search")
+# Dropdown for Source
+# We use "index=0" to default to the first item (usually "Friend" or "Manual")
+selected_source = st.sidebar.selectbox("Where did you hear about it?", available_sources)
+
+# Add a "New Source" option if it's not in the list
+if st.sidebar.checkbox("Add a new source?"):
+    custom_source = st.sidebar.text_input("Type new source name:")
+    final_source = custom_source if custom_source else selected_source
+else:
+    final_source = selected_source
+
+# 2. Search Box
+search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
 
 if st.sidebar.button("Search & Add"):
     if search_query and OMDB_API_KEY != "YOUR_API_KEY_HERE":
@@ -181,10 +208,10 @@ if st.sidebar.button("Search & Add"):
             title = response.get("Title")
             year = response.get("Year")[:4]
             rating = response.get("imdbRating", "0.0")
-            imdb_id = response.get("imdbID") # This is the "tt12345" part
+            imdb_id = response.get("imdbID")
             
-            # We add the IMDb ID to the end of our smart string
-            smart_source = f"{manual_source} | {year} | {rating}⭐ | {imdb_id}"
+            # Use 'final_source' from our dropdown/text input combo
+            smart_source = f"{final_source} | {year} | {rating}⭐ | {imdb_id}"
             
             if add_manual_movie(title, smart_source):
                 st.sidebar.success(f"Added: {title}")
