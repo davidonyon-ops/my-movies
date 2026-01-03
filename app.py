@@ -42,17 +42,17 @@ def load_imdb_data():
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
-            source_col = manual_entries.iloc[:, 3].astype(str)
+            full_string = manual_entries.iloc[:, 3].astype(str)
+            
+            # 1. Extract the actual Source (the text BEFORE the first | )
+            manual_clean['Source List'] = full_string.str.split('|').str[0].str.strip()
             
             # 1. Extract Year (The 4 digits between the | symbols)
             manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
             
             # 2. Extract Rating (The numbers before the ⭐)
             manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
-            
-            # 3. Keep the Source List clean for the UI
-            manual_clean['Source List'] = source_col
-            
+                       
             manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
@@ -168,42 +168,39 @@ if df is not None:
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-# Use a specific key for the search input
-search_query = st.sidebar.text_input("Movie Title:", key="manual_search_input")
+# 1. Manual Input for Source
+manual_source_input = st.sidebar.text_input("Source (e.g. TikTok, Friend):", value="Manual")
+
+# 2. Search Box
+search_query = st.sidebar.text_input("Search IMDb to add:", key="manual_search_input")
 search_btn = st.sidebar.button("Search IMDb")
 
 if search_btn and search_query:
-    with st.sidebar.status("Fetching from IMDb...", expanded=True) as status:
-        # Step 1: Search
-        # Temporary debug line
-        # st.sidebar.write("IMDb Connection:", "OK" if ia else "FAILED")
-        results = ia.search_movie(search_query)
-        
-        if not results:
-            st.warning("No matches found. Try a different spelling.")
-        else:
-            st.write(f"Found {len(results[:5])} matches:")
-            for movie in results[:5]:
-                # Step 2: Extract basic info
-                title = movie.get('title')
-                year = movie.get('year')
-                m_id = movie.movieID
-                
-                # Step 3: Create the selection button
-                # We use the m_id in the key to keep it unique
-                if st.button(f"Add: {title} ({year})", key=f"select_{m_id}", use_container_width=True):
-                    # Fetch rating only when a specific movie is selected to save time
-                    full_info = ia.get_movie(m_id)
-                    rating = full_info.get('rating', 0.0)
+    try:
+        with st.sidebar.status("Searching IMDb...", expanded=True) as status:
+            results = ia.search_movie(search_query)
+            
+            if results:
+                for movie in results[:5]:
+                    title = movie.get('title')
+                    year = movie.get('year', '????')
+                    m_id = movie.movieID
                     
-                    # Pack the data for your Google Sheet
-                    smart_source = f"Manual | {year} | {rating}⭐"
-                    
-                    if add_manual_movie(title, smart_source):
-                        st.success(f"Successfully added {title}!")
-                        st.cache_data.clear()
-                        st.rerun()
-        status.update(label="Search complete", state="complete")
+                    if st.button(f"✅ {title} ({year})", key=f"sel_{m_id}", use_container_width=True):
+                        full_info = ia.get_movie(m_id)
+                        rating = full_info.get('rating', 0.0)
+                        
+                        # We now include YOUR manual source at the front
+                        smart_source = f"{manual_source_input} | {year} | {rating}⭐"
+                        
+                        if add_manual_movie(title, smart_source):
+                            st.sidebar.success(f"Added {title}!")
+                            st.cache_data.clear()
+                            st.rerun()
+            else:
+                st.warning("No matches found.")
+    except Exception as e:
+        st.sidebar.error(f"Error: {e}")
 
 # --- 5. PAGE LOGIC ---
 if st.session_state.selected_movie_id:
