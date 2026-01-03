@@ -45,10 +45,24 @@ def load_imdb_data():
 
 def get_watched_list():
     try:
-        watched_df = pd.read_csv(SHEET_CSV_URL)
-        # Ensure we only get the unique IDs from the sheet
-        return set(watched_df['Const'].astype(str).tolist())
-    except:
+        # 1. We add a random number to the URL to force Google to give us the freshest data
+        import time
+        cache_buster = f"&cache_bust={int(time.time())}"
+        
+        # 2. Read the CSV from the sheet
+        watched_df = pd.read_csv(SHEET_CSV_URL + cache_buster)
+        
+        # 3. Clean the data: Remove spaces and make sure everything is a string
+        if 'Const' in watched_df.columns:
+            # .strip() removes any accidental spaces before or after the ID
+            watched_ids = watched_df['Const'].astype(str).str.strip().unique().tolist()
+            return set(watched_ids)
+        else:
+            # This helps us debug if the header is wrong
+            st.warning(f"Column 'Const' not found. Available columns: {list(watched_df.columns)}")
+            return set()
+    except Exception as e:
+        st.error(f"Error reading watched list: {e}")
         return set()
 
 def mark_as_watched_permanent(const_id):
