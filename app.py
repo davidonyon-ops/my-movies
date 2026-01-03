@@ -19,46 +19,47 @@ ENTRY_ID_TITLE = "entry.1090297045"
 ENTRY_ID_SOURCE = "entry.1247422407" 
 
 # --- 2. DATA LOADING ---
-@st.cache_data
 @st.cache_data(ttl=300)
 def load_imdb_data():
-    # A. Load your IMDb files from GitHub
+    # 1. GET GITHUB DATA
     files = glob.glob("*.csv")
-    all_data = []
+    all_github_data = []
     for f in files:
         try:
             temp_df = pd.read_csv(f, encoding='latin1')
             temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
             temp_df['Source List'] = f.replace('.csv', '')
-            all_data.append(temp_df)
+            all_github_data.append(temp_df)
         except: continue
     
-    master_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+    if all_github_data:
+        master_df = pd.concat(all_github_data, ignore_index=True)
+    else:
+        master_df = pd.DataFrame(columns=['Title', 'Year', 'IMDb Rating', 'Const', 'Source List'])
 
-    # B. Load Manual Entries from Google Sheet
+    # 2. GET MANUAL DATA (FROM GOOGLE SHEET)
     try:
+        # This line fetches your sheet
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-        # Temporary debug line - add this inside load_imdb_data
-        st.sidebar.write("Columns found in Sheet:", list(sheet_df.columns))
-        st.sidebar.write("Rows with MANUAL:", len(sheet_df[sheet_df['Const'] == "MANUAL"]))
+        # This line looks for your "Quick Add" movies
+        manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
         
-        # Look for rows marked as "MANUAL"
-        if 'Const' in sheet_df.columns:
-            manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
-            manual_rows['Year'] = 2026 
+        if not manual_rows.empty:
+            manual_rows['Year'] = 2026
             manual_rows['IMDb Rating'] = 0.0
-            # Use 'Source' column if it exists, otherwise call it 'Manual'
+            # Matches 'Source' column from sheet to 'Source List' in app
             manual_rows['Source List'] = manual_rows['Source'] if 'Source' in manual_rows.columns else "Manual Entry"
-            # Create a fake ID so the "Watched" button works for these too
+            # Creates a temporary ID so you can 'Watch' it
             manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
             
+            # This merges GitHub and Google Sheet data together
             master_df = pd.concat([master_df, manual_rows], ignore_index=True)
     except:
-        pass # If sheet is empty, just use GitHub data
+        pass # If sheet fails, app just uses GitHub data
 
-    # C. Grouping and Hype Score
+    # 3. CLEANING & HYPE SCORE
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
@@ -68,7 +69,7 @@ def load_imdb_data():
     }).reset_index()
     
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
-    return agg_df.sort_values('Hype Score', ascending=False)
+    return agg_df.sort_values('Hype Score', ascending=False)   
 
 def get_watched_list():
     try:
