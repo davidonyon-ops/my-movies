@@ -35,38 +35,43 @@ def load_imdb_data():
 
     # 2. GET MANUAL DATA (FROM GOOGLE SHEET)
     try:
-        # Fetching the sheet with a cache buster
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-        # Filter for rows where Const is "MANUAL"
-        if 'Const' in sheet_df.columns:
-            manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
+        # --- FIXED LOGIC FOR YOUR COLUMN NAMES ---
+        # We look for MANUAL in the 'Const' column
+        manual_rows = sheet_df[sheet_df['Const'] == "MANUAL"].copy()
+        
+        if not manual_rows.empty:
+            # We must RENAME your 'Source' column to 'Source List' so the app can search it
+            # and ensure 'Title' is treated as the Title.
+            manual_rows = manual_rows.rename(columns={'Source': 'Source List'})
             
-            if not manual_rows.empty:
-                # Ensure the manual rows have the columns the app expects
-                manual_rows['Year'] = 2026
-                manual_rows['IMDb Rating'] = 0.0
-                # Use 'Source' column from form, or default to 'Manual'
-                manual_rows['Source List'] = manual_rows['Source'] if 'Source' in manual_rows.columns else "Manual Entry"
-                # Create a unique ID for these manual entries
-                manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
-                
-                master_df = pd.concat([master_df, manual_rows], ignore_index=True)
+            manual_rows['Year'] = 2026
+            manual_rows['IMDb Rating'] = 0.0
+            
+            # Create a unique ID for these manual entries
+            # We use the Title column to make a unique ID
+            manual_rows['Const'] = "M_" + manual_rows['Title'].astype(str)
+            
+            # This merges GitHub and Google Sheet data together
+            master_df = pd.concat([master_df, manual_rows], ignore_index=True)
+            
     except Exception as e:
-        pass # Silently fail and use GitHub data if sheet is unavailable
+        st.sidebar.error(f"Sheet Sync Error: {e}")
 
     # 3. CLEANING & HYPE SCORE
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
+    # We group them so duplicates across lists show a higher Hype Score
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
         'IMDb Rating': 'max'
     }).reset_index()
     
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
-    return agg_df.sort_values('Hype Score', ascending=False)   
+    return agg_df.sort_values('Hype Score', ascending=False)
 
 def get_watched_list():
     try:
