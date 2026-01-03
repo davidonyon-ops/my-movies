@@ -13,46 +13,51 @@ def load_data():
     all_data = []
     for f in files:
         try:
-            # Standard IMDb export encoding
             temp_df = pd.read_csv(f, encoding='latin1')
             temp_df.columns = [c.strip() for c in temp_df.columns]
-            # Track which list this movie came from
             temp_df['Source File'] = f.replace('.csv', '')
             all_data.append(temp_df)
         except:
             continue
     
+    if not all_data:
+        return None
+
     full_df = pd.concat(all_data, ignore_index=True)
-    
-    # Data Cleaning
     full_df['IMDb Rating'] = pd.to_numeric(full_df['IMDb Rating'], errors='coerce').fillna(0)
     full_df['Year'] = pd.to_numeric(full_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    # Grouping to calculate Hype Score
-    # We keep 'Directors' and 'Genres' to show on the detail page
     agg_df = full_df.groupby(['Const', 'Title', 'Year', 'IMDb Rating']).agg({
         'Source File': lambda x: ", ".join(sorted(set(x))),
         'Genres': 'first',
         'Directors': 'first',
         'URL': 'first',
-        'Title': 'count' # This counts appearances across lists
+        'Title': 'count' 
     }).rename(columns={'Title': 'Hype Score'}).reset_index()
     
-    return agg_df
+    return agg_df.sort_values('Hype Score', ascending=False)
 
 df = load_data()
 
-# --- 2. SESSION STATE (Navigation) ---
-if "selected_movie" not in st.session_state:
-    st.session_state.selected_movie = None
+# --- 2. SIDEBAR NAVIGATION ---
+st.sidebar.title("🔍 Navigation")
 
-# --- 3. DETAIL PAGE VIEW ---
-if st.session_state.selected_movie:
-    # Filter the df for the specific movie ID
-    movie = df[df['Const'] == st.session_state.selected_movie].iloc[0]
+if df is not None:
+    # Create a list of titles for the dropdown
+    movie_list = ["--- Select a Movie for Details ---"] + df['Title'].tolist()
+    choice = st.sidebar.selectbox("Jump to Movie Details:", movie_list)
     
-    if st.button("⬅️ Back to Master List"):
-        st.session_state.selected_movie = None
+    # Simple search filter for the main table
+    search = st.sidebar.text_input("Filter Table by Title:")
+else:
+    choice = "--- Select a Movie for Details ---"
+
+# --- 3. PAGE LOGIC ---
+if choice != "--- Select a Movie for Details ---":
+    # DETAIL VIEW
+    movie = df[df['Title'] == choice].iloc[0]
+    
+    if st.button("⬅️ Back to Table"):
         st.rerun()
     
     st.header(f"{movie['Title']} ({movie['Year']})")
@@ -66,34 +71,31 @@ if st.session_state.selected_movie:
     with col2:
         st.metric("Hype Score", f"{movie['Hype Score']} Lists")
         st.write(f"**📂 Found in your lists:**")
-        st.code(movie['Source File'], language=None)
+        st.info(movie['Source File'])
 
     st.divider()
     st.link_button("🔥 Open on IMDb.com", movie['URL'], use_container_width=True)
 
-# --- 4. MAIN LIST VIEW ---
 else:
+    # MAIN TABLE VIEW
     st.title("🎬 Master Movie Prioritizer")
-    st.write("Click a row to see more details and original list sources.")
-
+    
     if df is not None:
-        # We display the data and catch the 'selection' event
-        event = st.dataframe(
-            df[['Title', 'Year', 'IMDb Rating', 'Hype Score']],
+        # Apply search filter if typed
+        display_df = df.copy()
+        if search:
+            display_df = display_df[display_df['Title'].str.contains(search, case=False)]
+        
+        st.write("Use the **sidebar dropdown** to see director and actor details.")
+        
+        st.dataframe(
+            display_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']],
             column_config={
                 "IMDb Rating": st.column_config.NumberColumn("Rating", format="%.1f ⭐"),
-                "Hype Score": st.column_config.ProgressColumn("Hype Score", min_value=0, max_value=int(df['Hype Score'].max())),
+                "Hype Score": st.column_config.NumberColumn("Hype Count", format="%d 📋"),
             },
             hide_index=True,
-            use_container_width=True,
-            on_select="rerun", # This makes the app respond when you click a row
-            selection_mode="single_row"
+            use_container_width=True
         )
-
-        # If a user clicks a row, save that movie ID to session state
-        if event and event.selection.rows:
-            selected_idx = event.selection.rows[0]
-            st.session_state.selected_movie = df.iloc[selected_idx]['Const']
-            st.rerun()
     else:
-        st.error("No CSV files found. Please upload your IMDb exports to GitHub!")
+        st.warning("No CSV files found in the repository. Please upload your exports!")
