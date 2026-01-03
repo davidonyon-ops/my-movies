@@ -199,6 +199,14 @@ if "watched_ids" not in st.session_state:
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
+if 'Genre' in df.columns:
+    all_genres = []
+    for g in df['Genre'].dropna().unique():
+        all_genres.extend([x.strip() for x in str(g).split(',')])
+    genre_options = sorted(list(set([g for g in all_genres if g != "N/A"])))
+else:
+    genre_options = []
+
 # --- 4. SIDEBAR ---
 st.sidebar.title("🔍 David's Filters")
 if df is not None:
@@ -207,6 +215,26 @@ if df is not None:
         st.rerun()
 
     search_query = st.sidebar.text_input("Title Search:")
+    
+    # 2. Sidebar Genre Filter
+    selected_genres = st.sidebar.multiselect(
+    "Filter by Genre:",
+    options=genre_options,
+    default=[]
+)
+
+# 3. Apply the Filters to your dataframe
+    filtered_df = df.copy()
+
+# Title search filter
+    if search_query:
+    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
+
+# Genre filter (The "Magic" part: checks if ANY of the selected genres are in the row)
+    if selected_genres:
+    pattern = '|'.join(selected_genres)
+    filtered_df = filtered_df[filtered_df['Genre'].str.contains(pattern, case=False, na=False)]
+    
     st.sidebar.divider()
     
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
