@@ -237,8 +237,9 @@ if selected_genres:
     filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
 
 # 4. Final Display
-st.write(f"🔍 Found **{len(filtered_df)}** movies matching your criteria")
-st.dataframe(filtered_df)
+st.title("🎬 My Movie Collection")
+st.write(f"Showing {len(filtered_df)} movies")
+st.dataframe(filtered_df, use_container_width=True)
     
 st.sidebar.divider()
     
