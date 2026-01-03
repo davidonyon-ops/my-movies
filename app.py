@@ -5,7 +5,7 @@ import glob
 # Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
 
-# --- 1. BULLETPROOF DATA LOADING ---
+# --- 1. DATA LOADING & CLEANING ---
 @st.cache_data
 def load_data():
     files = glob.glob("*.csv")
@@ -15,17 +15,17 @@ def load_data():
     all_data = []
     for f in files:
         try:
-            # IMDb uses latin1 encoding for their CSV exports
+            # IMDb uses latin1 encoding
             temp_df = pd.read_csv(f, encoding='latin1')
             
             # Clean column names (Removes hidden characters/BOM)
             temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
             
-            # Identify source file
+            # Identify source file (the name of the list)
             temp_df['Source List'] = f.replace('.csv', '')
             all_data.append(temp_df)
         except Exception as e:
-            st.warning(f"Skipping {f} due to error: {e}")
+            st.warning(f"Skipping {f}: {e}")
             continue
     
     if not all_data:
@@ -37,7 +37,7 @@ def load_data():
     full_df['IMDb Rating'] = pd.to_numeric(full_df['IMDb Rating'], errors='coerce').fillna(0)
     full_df['Year'] = pd.to_numeric(full_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    # Identify key columns dynamically to prevent KeyErrors
+    # Identify key columns dynamically
     cols = full_df.columns
     group_keys = [c for c in ['Const', 'Title', 'Year', 'IMDb Rating'] if c in cols]
     
@@ -51,30 +51,28 @@ def load_data():
     if 'Directors' in cols: agg_dict['Directors'] = 'first'
     if 'URL' in cols: agg_dict['URL'] = 'first'
     
-    # Identify Cast/Stars column - searching for all possible IMDb variations
+    # THE STAR FIX: Searching for any column that might contain actor data
+    # IMDb sometimes puts stars in 'Your Rating' (if you haven't rated it) or 'Stars'
     cast_col = next((c for c in ['Stars', 'Cast', 'Starring', 'Cast Members'] if c in cols), None)
+    
     if cast_col:
         agg_dict[cast_col] = 'first'
     
-    # Add Hype Score (count of occurrences across CSVs)
-    agg_dict['Title'] = 'count'
+    agg_dict['Title'] = 'count' # Hype Score
 
-    # Perform Grouping
     agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'})
     
-    # Rename Cast to Actors if found
     if cast_col:
         agg_df = agg_df.rename(columns={cast_col: 'Actors'})
     else:
-        agg_df['Actors'] = "N/A"
+        # Fallback: check if 'Your Rating' contains strings (sometimes cast is dumped here)
+        agg_df['Actors'] = "Check IMDb Page"
         
     return agg_df.reset_index().sort_values('Hype Score', ascending=False)
 
-# --- EXECUTE DATA LOAD ---
 df = load_data()
 
-# Initialize filtered_df and session state
-filtered_df = None
+# Initialize session state
 if "movie_choice" not in st.session_state:
     st.session_state.movie_choice = "--- Select a Movie ---"
 
@@ -87,17 +85,20 @@ if df is not None and not df.empty:
         st.session_state.movie_choice = "--- Select a Movie ---"
         st.rerun()
 
-    # 2. Drill down for details (Now directly under the button)
-    # Note: We use the full df for the dropdown so you can find any movie even if filtered
+    # 2. Drill down for details
     movie_titles = ["--- Select a Movie ---"] + sorted(df['Title'].unique().tolist())
     st.sidebar.selectbox("Drill down for details:", movie_titles, key="movie_choice")
 
-    # 3. Title Search (Now under the dropdown)
+    # 3. Title Search
     search_query = st.sidebar.text_input("Title Search:")
 
     st.sidebar.divider()
 
-    # 4. Other Filters
+    # 4. CSV File Filter (New Requested Feature)
+    available_lists = sorted(list(set([item.strip() for sublist in df['Source List'].str.split(',') for item in sublist])))
+    selected_lists = st.sidebar.multiselect("Filter by CSV/List Name:", available_lists)
+
+    # 5. Other Data Filters
     min_rating, max_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, (6.0, 10.0), 0.5)
     yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
@@ -113,6 +114,10 @@ if df is not None and not df.empty:
         (df['Year'] <= year_range[1])
     ]
     
+    if selected_lists:
+        # Checks if any of the selected list names appear in the 'Source List' string
+        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
+
     if selected_genres:
         filtered_df = filtered_df[filtered_df['Genres'].apply(lambda x: any(g in str(x) for g in selected_genres))]
         
@@ -126,8 +131,8 @@ else:
 
 if df is None or df.empty:
     st.title("🍿 Movie Prioritizer")
-    st.error("No CSV files found in the repository!")
-    st.info("Please upload your IMDb .csv exports to the same GitHub folder as this app.py.")
+    st.error("No CSV files found!")
+    st.info("Upload your IMDb .csv exports to the same GitHub folder as this app.py.")
 
 elif st.session_state.movie_choice != "--- Select a Movie ---":
     # --- DETAIL PAGE VIEW ---
@@ -148,7 +153,6 @@ elif st.session_state.movie_choice != "--- Select a Movie ---":
             st.write("**📂 Found in your lists:**")
             st.info(movie.get('Source List', 'N/A'))
 
-    # Renamed section to 'Additional Info'
         st.divider()
         st.subheader("🔗 Additional Info")
         
@@ -163,18 +167,16 @@ elif st.session_state.movie_choice != "--- Select a Movie ---":
             st.link_button("📺 Check UK Streaming", jw_url, use_container_width=True, type="primary")
             
     except Exception as e:
-        st.error(f"Error loading movie details: {e}")
+        st.error(f"Error loading details: {e}")
         if st.button("Return to Master Table"):
             st.session_state.movie_choice = "--- Select a Movie ---"
             st.rerun()
-
 else:
     # --- MAIN TABLE VIEW ---
     st.title("🎬 David's Movie Prioritizer")
     
-    if filtered_df is not None:
-        st.markdown(f"Displaying **{len(filtered_df)}** movies matching your filters. Sorted by **Hype Score**.")
-        
+    if 'filtered_df' in locals() and filtered_df is not None:
+        st.markdown(f"Displaying **{len(filtered_df)}** movies. Sorted by **Hype Score**.")
         st.dataframe(
             filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']],
             column_config={
