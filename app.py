@@ -207,38 +207,38 @@ if 'Genre' in df.columns:
 else:
     genre_options = []
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR FILTERS ---
 st.sidebar.title("🔍 David's Filters")
+
 if df is not None:
-    if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
-        st.session_state.selected_movie_id = None
-        st.rerun()
+    # 1. Title Search
+    search_query = st.sidebar.text_input("Title Search:", key="main_search")
+    
+    # 2. Genre Multi-select
+    selected_genres = st.sidebar.multiselect("Filter by Genre:", options=genre_options)
 
-    search_query = st.sidebar.text_input("Title Search:")
-    
-    selected_genres = st.sidebar.multiselect(
-        "Filter by Genre:",
-        options=genre_options,
-        default=[]
-    )
-
-    st.sidebar.divider()
-    
-    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
-    
+    # 3. CSV Source Multi-select
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
+    selected_lists = st.sidebar.multiselect("Filter by CSV List:", options=lists)
     
+    # 4. Rating and Year Sliders
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
     yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
-    # --- APPLY ALL FILTERS AT ONCE ---
-    filtered_df = df[
-        (df['IMDb Rating'] >= min_rating) & 
-        (df['Year'] >= year_range[0]) & 
-        (df['Year'] <= year_range[1])
-    ].copy()
+    # 5. Hide Watched Toggle
+    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
+
+    # --- THE FILTERING ENGINE ---
+    # We start with everyone...
+    filtered_df = df.copy()
+
+    # ...then we remove movies that don't match your criteria
+    filtered_df = filtered_df[
+        (filtered_df['IMDb Rating'] >= min_rating) & 
+        (filtered_df['Year'] >= year_range[0]) & 
+        (filtered_df['Year'] <= year_range[1])
+    ]
 
     if hide_watched:
         filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
@@ -252,31 +252,6 @@ if df is not None:
     if selected_genres:
         genre_pattern = '|'.join(selected_genres)
         filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
-  
-st.sidebar.divider()
-    
-hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
-    
-lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
-min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
-yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
-year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
-
-filtered_df = df[
-    (df['IMDb Rating'] >= min_rating) & 
-    (df['Year'] >= year_range[0]) & (df['Year'] <= year_range[1])
-].copy()
-
-if hide_watched:
-    filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
-if selected_lists:
-    filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
-if search_query:
-    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
-
-# First, get the list of available sources from the data we already loaded
-available_sources = get_unique_sources(df)
 
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
