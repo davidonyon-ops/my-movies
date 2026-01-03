@@ -1,12 +1,22 @@
 import streamlit as st
 import pandas as pd
 import glob
-from streamlit_gsheets import GSheetsConnection
+import requests
 
 # Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
 
-# --- 1. DATA LOADING (IMDb CSVs) ---
+# --- 1. SETTINGS (ACTION REQUIRED) ---
+# 1. Your Google Sheet CSV Link (ends in /export?format=csv)
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv"
+
+# 2. Your Google Form Submission URL (ends in /formResponse)
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/viewform?usp=pp_url&entry.505487716=TEST"
+
+# 3. Your Entry ID (the bit before =TEST, e.g., 'entry.123456789')
+ENTRY_ID = "entry.R505487716"
+
+# --- 2. DATA LOADING ---
 @st.cache_data
 def load_imdb_data():
     files = glob.glob("*.csv")
@@ -33,24 +43,27 @@ def load_imdb_data():
     agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'}).reset_index()
     return agg_df.sort_values('Hype Score', ascending=False)
 
-# --- 2. GOOGLE SHEETS CONNECTION (Watched List) ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-
 def get_watched_list():
     try:
-        # Read the 'Const' column from the Google Sheet
-        data = conn.read(ttl=0) # ttl=0 ensures it doesn't cache old data
-        return set(data['Const'].astype(str).tolist())
+        watched_df = pd.read_csv(SHEET_CSV_URL)
+        # Ensure we only get the unique IDs from the sheet
+        return set(watched_df['Const'].astype(str).tolist())
     except:
         return set()
 
-def update_watched_sheet(new_watched_set):
-    # Convert set back to DataFrame and update the Google Sheet
-    new_df = pd.DataFrame(list(new_watched_set), columns=['Const'])
-    conn.update(data=new_df)
-    st.cache_data.clear() # Clear cache to show changes immediately
+def mark_as_watched_permanent(const_id):
+    # This sends the ID to your Google Form
+    form_data = {ENTRY_ID: const_id} 
+    try:
+        response = requests.post(FORM_URL, data=form_data)
+        if response.status_code == 200:
+            st.session_state.watched_ids.add(const_id)
+            return True
+        return False
+    except:
+        return False
 
-# --- 3. SESSION STATE ---
+# --- 3. INITIALIZATION ---
 df = load_imdb_data()
 if "watched_ids" not in st.session_state:
     st.session_state.watched_ids = get_watched_list()
@@ -69,14 +82,12 @@ if df is not None:
     
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
     
-    # List & Data Filters
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
     selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
     yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
-    # Apply Filtering
     filtered_df = df[
         (df['IMDb Rating'] >= min_rating) & 
         (df['Year'] >= year_range[0]) & (df['Year'] <= year_range[1])
@@ -98,17 +109,14 @@ if st.session_state.selected_movie_id:
     st.header(f"{movie['Title']} ({movie['Year']})")
     
     if m_id in st.session_state.watched_ids:
-        if st.button("✅ Watched (Click to unmark)"):
-            st.session_state.watched_ids.remove(m_id)
-            update_watched_sheet(st.session_state.watched_ids)
-            st.rerun()
+        st.success("✅ This movie is on your permanent Watched list.")
     else:
-        if st.button("👁️ Mark as Watched"):
-            st.session_state.watched_ids.add(m_id)
-            update_watched_sheet(st.session_state.watched_ids)
-            st.rerun()
+        if st.button("👁️ Mark as Watched Permanent"):
+            if mark_as_watched_permanent(m_id):
+                st.toast("Saved to Google Sheets!")
+                # Give the sheet a second to update before refreshing
+                st.rerun()
 
-    # Information Display
     col1, col2 = st.columns(2)
     with col1:
         st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
@@ -128,8 +136,6 @@ if st.session_state.selected_movie_id:
 else:
     # MAIN TABLE
     st.title("🎬 David's Movie Prioritizer")
-    st.write("💡 **Check the 'View' box** to see details.")
-    
     if filtered_df is not None:
         display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
         display_df.insert(0, "View", False)
