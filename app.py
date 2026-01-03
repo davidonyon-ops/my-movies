@@ -3,6 +3,7 @@ import pandas as pd
 import glob
 import requests
 import time  # Fixed: Moved to the top so all functions can see it
+from imdb import Cinemagoer
 
 # Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
@@ -13,6 +14,7 @@ FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl
 ENTRY_ID_CONST = "entry.505487716"
 ENTRY_ID_TITLE = "entry.1090297045" 
 ENTRY_ID_SOURCE = "entry.1247422407" 
+ia = Cinemagoer()
 
 # --- 2. DATA LOADING ---
 @st.cache_data(ttl=300)
@@ -44,12 +46,13 @@ def load_imdb_data():
             # Create a clean dataframe for the manual entries
             # We assume: Col 1=Timestamp, Col 2=Const, Col 3=Title, Col 4=Source
             manual_clean = pd.DataFrame()
-            manual_clean['Title'] = manual_entries.iloc[:, 2] # 3rd Column
-            manual_clean['Source List'] = manual_entries.iloc[:, 3] # 4th Column
+            manual_clean['Title'] = manual_entries.iloc[:, 2] 
+            manual_clean['Source List'] = manual_entries.iloc[:, 3]
             manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
-            manual_clean['Year'] = 2026
-            manual_clean['IMDb Rating'] = 0.0
+            manual_clean['IMDb Rating'] = pd.to_numeric(manual_entries.iloc[:, 4], errors='coerce').fillna(0.0)
+            manual_clean['Year'] = pd.to_numeric(manual_entries.iloc[:, 5], errors='coerce').fillna(2026).astype(int)
             
+            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
@@ -92,11 +95,31 @@ def mark_as_watched_permanent(const_id):
         return False
 
 def add_manual_movie(title, source_name):
+    # 1. LIVE SEARCH IMDB
+    try:
+        search = ia.search_movie(title)
+        if search:
+            movie_id = search[0].movieID
+            live_movie = ia.get_movie(movie_id)
+            live_rating = live_movie.get('rating', 0.0)
+            live_year = live_movie.get('year', 2026)
+        else:
+            live_rating = 0.0
+            live_year = 2026
+    except:
+        live_rating = 0.0
+        live_year = 2026
+
+    # 2. SEND TO GOOGLE FORM
+    # Note: Ensure your form has spots for these!
     form_data = {
         ENTRY_ID_TITLE: title, 
         ENTRY_ID_SOURCE: source_name,
-        ENTRY_ID_CONST: "MANUAL"
+        ENTRY_ID_CONST: "MANUAL",
+        "entry.RATING_ID": live_rating,  # Add your Entry ID for Rating
+        "entry.YEAR_ID": live_year      # Add your Entry ID for Year
     }
+    
     try:
         requests.post(FORM_URL, data=form_data)
         return True
