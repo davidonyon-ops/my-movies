@@ -105,21 +105,24 @@ if "watched_ids" not in st.session_state:
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
-# Prepare Filter Options
+# 1. FIX GENRE LIST (Scan EVERYTHING)
 all_genres = []
-for g in df['Genre'].dropna().unique():
-    if g and g != "N/A":
-        all_genres.extend([x.strip() for x in str(g).split(',')])
+for g in df['Genre'].astype(str):
+    if g and g != "N/A" and g != "nan":
+        parts = [x.strip() for x in g.split(',')]
+        all_genres.extend(parts)
 genre_options = sorted(list(set(all_genres)))
 
-all_lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
+# 2. PREPARE SOURCE LISTS
+csv_lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
+dropdown_sources = ["TikTok", "YouTube", "Friend Recommendation", "Manual Entry"] + csv_lists
 
 # --- 4. SIDEBAR FILTERS ---
 st.sidebar.title("🔍 David's Filters")
 
 search_query = st.sidebar.text_input("Search by Title:", key="filter_search")
 selected_genres = st.sidebar.multiselect("Filter by Genre:", options=genre_options)
-selected_lists = st.sidebar.multiselect("Filter by CSV/List:", options=all_lists)
+selected_lists = st.sidebar.multiselect("Filter by CSV/List:", options=csv_lists)
 min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 5.0, 0.5)
 yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
 year_range = st.sidebar.slider("Year Range", yr_min, yr_max, (yr_min, yr_max))
@@ -145,38 +148,43 @@ if selected_lists:
 st.sidebar.divider()
 st.sidebar.subheader("➕ Add New Movie")
 
-# Restore Manual Source Field
-manual_source_input = st.sidebar.text_input("Source (e.g. TikTok, Friend):", value="Manual")
-new_title = st.sidebar.text_input("Movie Title:", key="add_search")
+# COMBO SOURCE PICKER (Dropdown + Manual Override)
+selected_source = st.sidebar.selectbox("Pick Existing Source:", dropdown_sources)
+custom_source = st.sidebar.text_input("OR Type New Source (Leave blank to use above):")
+final_source = custom_source if custom_source else selected_source
+
+new_title = st.sidebar.text_input("Movie Title to Search:", key="add_search")
 if st.sidebar.button("Search & Add"):
     if new_title:
-        if add_manual_movie(new_title, manual_source_input):
+        if add_manual_movie(new_title, final_source):
             st.sidebar.success(f"Added {new_title}!")
             st.cache_data.clear()
             st.rerun()
 
 # --- 5. MAIN DISPLAY ---
 if st.session_state.selected_movie_id:
-    # DETAIL PAGE logic remains same
+    # DETAIL PAGE
     movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
     st.header(f"{movie['Title']} ({movie['Year']})")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Rating", f"{movie['IMDb Rating']} ⭐")
+        st.write(f"**Director:** {movie['Director']}")
+        st.write(f"**Genre:** {movie['Genre']}")
+    with col2:
+        st.metric("Hype", f"{movie['Hype Score']} Lists")
+        if st.button("👁️ Mark as Watched"):
+            if mark_as_watched_permanent(movie['Const']):
+                st.rerun()
+    
+    st.divider()
     if st.button("⬅️ Back to List"):
         st.session_state.selected_movie_id = None
         st.rerun()
-    st.write(f"**Genre:** {movie['Genre']}")
-    st.write(f"**Director:** {movie['Director']}")
-    st.write(f"**Actors:** {movie['Actors']}")
-    if st.button("👁️ Mark as Watched"):
-        if mark_as_watched_permanent(movie['Const']):
-            st.rerun()
 
 else:
     st.title("🎬 David's Movie Prioritizer")
-    
-    # Check if we need to sync data to make genres appear
-    na_count = len(df[df['Genre'] == 'N/A'])
-    if na_count > 0:
-        st.warning(f"Note: {na_count} movies are missing Genre info. Filter might be limited.")
     
     st.write(f"Showing {len(filtered_df)} movies")
     
