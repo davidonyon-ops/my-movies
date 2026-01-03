@@ -224,16 +224,21 @@ if df is not None:
 )
 
 # 3. Apply the Filters to your dataframe
-    filtered_df = df.copy()
+    # 1. Start with the full list
+filtered_df = df.copy()
 
-# Title search filter
-    if search_query:
-        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
+# 2. Title Filter
+if search_query:
+    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
 
-# Genre filter (The "Magic" part: checks if ANY of the selected genres are in the row)
-    if selected_genres:
-        pattern = '|'.join(selected_genres)
-        filtered_df = filtered_df[filtered_df['Genre'].str.contains(pattern, case=False, na=False)]
+# 3. Genre Filter (The "Robust" Version)
+if selected_genres:
+    genre_pattern = '|'.join(selected_genres)
+    filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
+
+# 4. Final Display
+st.write(f"🔍 Found **{len(filtered_df)}** movies matching your criteria")
+st.dataframe(filtered_df)
     
     st.sidebar.divider()
     
