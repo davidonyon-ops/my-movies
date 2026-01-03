@@ -57,7 +57,6 @@ def load_imdb_data():
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
     except: pass
 
-    # Ensure columns exist
     for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year']:
         if col not in master_df.columns: master_df[col] = "N/A"
 
@@ -89,11 +88,10 @@ def mark_as_watched_permanent(const_id):
 
 def add_manual_movie(title, source_name):
     try:
-        search = ia.search_movie(title)
-        movie_id = search[0].movieID if search else None
-        if movie_id:
-            live = ia.get_movie(movie_id)
-            smart_source = f"{source_name} | {live.get('year', 2026)} | {live.get('rating', 0.0)}⭐ | tt{movie_id} | {', '.join(live.get('genres', ['N/A']))} | {str(live.get('director', ['N/A'])[0])} | {', '.join([str(a) for a in live.get('cast', [])[:3]])}"
+        url = f"http://www.omdbapi.com/?t={title}&apikey={OMDB_API_KEY}"
+        data = requests.get(url).json()
+        if data.get("Response") == "True":
+            smart_source = f"{source_name} | {data.get('Year')[:4]} | {data.get('imdbRating')}⭐ | {data.get('imdbID')} | {data.get('Genre')} | {data.get('Director')} | {data.get('Actors')}"
             requests.post(FORM_URL, data={ENTRY_ID_TITLE: title, ENTRY_ID_SOURCE: smart_source, ENTRY_ID_CONST: "MANUAL"})
             return True
     except: pass
@@ -110,18 +108,14 @@ if "selected_movie_id" not in st.session_state:
 # Prepare Filter Options
 all_genres = []
 for g in df['Genre'].dropna().unique():
-    all_genres.extend([x.strip() for x in str(g).split(',')])
-genre_options = sorted(list(set([g for g in all_genres if g != "N/A"])))
+    if g and g != "N/A":
+        all_genres.extend([x.strip() for x in str(g).split(',')])
+genre_options = sorted(list(set(all_genres)))
 
 all_lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-available_sources = ["Manual", "TikTok", "YouTube", "Friend"] + all_lists
 
 # --- 4. SIDEBAR FILTERS ---
 st.sidebar.title("🔍 David's Filters")
-
-if st.sidebar.button("🏠 Reset to Master Table"):
-    st.session_state.selected_movie_id = None
-    st.rerun()
 
 search_query = st.sidebar.text_input("Search by Title:", key="filter_search")
 selected_genres = st.sidebar.multiselect("Filter by Genre:", options=genre_options)
@@ -150,40 +144,40 @@ if selected_lists:
 
 st.sidebar.divider()
 st.sidebar.subheader("➕ Add New Movie")
-new_source = st.sidebar.selectbox("Source:", options=available_sources)
+
+# Restore Manual Source Field
+manual_source_input = st.sidebar.text_input("Source (e.g. TikTok, Friend):", value="Manual")
 new_title = st.sidebar.text_input("Movie Title:", key="add_search")
 if st.sidebar.button("Search & Add"):
     if new_title:
-        if add_manual_movie(new_title, new_source):
+        if add_manual_movie(new_title, manual_source_input):
             st.sidebar.success(f"Added {new_title}!")
             st.cache_data.clear()
             st.rerun()
 
 # --- 5. MAIN DISPLAY ---
 if st.session_state.selected_movie_id:
-    # DETAIL PAGE
+    # DETAIL PAGE logic remains same
     movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
     st.header(f"{movie['Title']} ({movie['Year']})")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Rating", f"{movie['IMDb Rating']} ⭐")
-        st.write(f"**Director:** {movie['Director']}")
-        st.write(f"**Genre:** {movie['Genre']}")
-    with col2:
-        st.metric("Hype", f"{movie['Hype Score']} Lists")
-        if st.button("👁️ Mark as Watched"):
-            if mark_as_watched_permanent(movie['Const']):
-                st.rerun()
-    
-    st.divider()
     if st.button("⬅️ Back to List"):
         st.session_state.selected_movie_id = None
         st.rerun()
+    st.write(f"**Genre:** {movie['Genre']}")
+    st.write(f"**Director:** {movie['Director']}")
+    st.write(f"**Actors:** {movie['Actors']}")
+    if st.button("👁️ Mark as Watched"):
+        if mark_as_watched_permanent(movie['Const']):
+            st.rerun()
 
 else:
-    # THE ONE AND ONLY MASTER TABLE
     st.title("🎬 David's Movie Prioritizer")
+    
+    # Check if we need to sync data to make genres appear
+    na_count = len(df[df['Genre'] == 'N/A'])
+    if na_count > 0:
+        st.warning(f"Note: {na_count} movies are missing Genre info. Filter might be limited.")
+    
     st.write(f"Showing {len(filtered_df)} movies")
     
     display_df = filtered_df[['Title', 'Year', 'Genre', 'IMDb Rating', 'Hype Score']].copy()
