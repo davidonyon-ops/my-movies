@@ -123,9 +123,9 @@ if st.session_state.selected_movie_id:
     st.header(f"{movie['Title']} ({movie['Year']})")
     
     if m_id in st.session_state.watched_ids:
-        st.success("✅ This movie is on your permanent Watched list.")
+        st.success("✅ You have watched this movie. Lets keep it goin!")
     else:
-        if st.button("👁️ Mark as Watched Permanent"):
+        if st.button("👁️ Watched"):
             if mark_as_watched_permanent(m_id):
                 st.toast("Saved to Google Sheets!")
                 # Give the sheet a second to update before refreshing
