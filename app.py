@@ -38,6 +38,11 @@ def load_imdb_data():
     # B. Load Manual Entries from Google Sheet
     try:
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
+        
+        # Temporary debug line - add this inside load_imdb_data
+st.sidebar.write("Columns found in Sheet:", list(sheet_df.columns))
+st.sidebar.write("Rows with MANUAL:", len(sheet_df[sheet_df['Const'] == "MANUAL"]))
+
         sheet_df.columns = sheet_df.columns.str.strip()
         
         # Look for rows marked as "MANUAL"
