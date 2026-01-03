@@ -168,32 +168,42 @@ if df is not None:
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-search_input = st.sidebar.text_input("Search IMDb to add:", key="movie_search_box")
+# Use a specific key for the search input
+search_query = st.sidebar.text_input("Movie Title:", key="manual_search_input")
+search_btn = st.sidebar.button("Search IMDb")
 
-if search_input:
-    with st.sidebar.status("Searching IMDb...", expanded=True) as status:
-        results = ia.search_movie(search_input)[:5]
+if search_btn and search_query:
+    with st.sidebar.status("Fetching from IMDb...", expanded=True) as status:
+        # Step 1: Search
+        # Temporary debug line
+        # st.sidebar.write("IMDb Connection:", "OK" if ia else "FAILED")
+        results = ia.search_movie(search_query)
         
-        if results:
-            for movie in results:
+        if not results:
+            st.warning("No matches found. Try a different spelling.")
+        else:
+            st.write(f"Found {len(results[:5])} matches:")
+            for movie in results[:5]:
+                # Step 2: Extract basic info
                 title = movie.get('title')
-                year = movie.get('year', '????')
+                year = movie.get('year')
                 m_id = movie.movieID
                 
-                if st.button(f"✅ {title} ({year})", key=f"btn_{m_id}", use_container_width=True):
-                    # Fetch full details for the rating
-                    full_movie = ia.get_movie(m_id)
-                    rating = full_movie.get('rating', 0.0)
+                # Step 3: Create the selection button
+                # We use the m_id in the key to keep it unique
+                if st.button(f"Add: {title} ({year})", key=f"select_{m_id}", use_container_width=True):
+                    # Fetch rating only when a specific movie is selected to save time
+                    full_info = ia.get_movie(m_id)
+                    rating = full_info.get('rating', 0.0)
                     
-                    # We pack Year and Rating into the Source field
-                    # Example format: "Manual | 2022 | 8.5⭐"
+                    # Pack the data for your Google Sheet
                     smart_source = f"Manual | {year} | {rating}⭐"
                     
                     if add_manual_movie(title, smart_source):
-                        st.sidebar.success(f"Added {title}!")
+                        st.success(f"Successfully added {title}!")
                         st.cache_data.clear()
                         st.rerun()
-            status.update(label="Select a movie above", state="complete")
+        status.update(label="Search complete", state="complete")
 
 # --- 5. PAGE LOGIC ---
 if st.session_state.selected_movie_id:
