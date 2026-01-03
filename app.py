@@ -19,7 +19,6 @@ ia = Cinemagoer()
 # --- 2. DATA LOADING ---
 @st.cache_data(ttl=300)
 def load_imdb_data():
-    # 1. GET GITHUB DATA
     files = glob.glob("*.csv")
     all_github_data = []
     for f in files:
@@ -32,27 +31,41 @@ def load_imdb_data():
     
     master_df = pd.concat(all_github_data, ignore_index=True) if all_github_data else pd.DataFrame()
 
-    # 2. GET MANUAL DATA (Position Based)
+    # 2. GET MANUAL DATA
     try:
         sheet_df = pd.read_csv(f"{SHEET_CSV_URL}&cache={int(time.time())}")
         sheet_df.columns = sheet_df.columns.str.strip()
         
-        # This finds rows where the 2nd column (Const) is "MANUAL"
-        # Using .iloc[:, 1] means "look at the second column regardless of its name"
-        is_manual = sheet_df.iloc[:, 1] == "MANUAL"
-        manual_entries = sheet_df[is_manual].copy()
+        # Look for "MANUAL" in the 2nd column
+        manual_entries = sheet_df[sheet_df.iloc[:, 1] == "MANUAL"].copy()
         
         if not manual_entries.empty:
-            # Create a clean dataframe for the manual entries
-            # We assume: Col 1=Timestamp, Col 2=Const, Col 3=Title, Col 4=Source
             manual_clean = pd.DataFrame()
-            manual_clean['Title'] = manual_entries.iloc[:, 2] 
-            manual_clean['Source List'] = manual_entries.iloc[:, 3]
+            manual_clean['Title'] = manual_entries.iloc[:, 2] # 3rd Column
+            manual_clean['Source List'] = manual_entries.iloc[:, 3] # 4th Column
             manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
-            manual_clean['IMDb Rating'] = pd.to_numeric(manual_entries.iloc[:, 4], errors='coerce').fillna(0.0)
-            manual_clean['Year'] = pd.to_numeric(manual_entries.iloc[:, 5], errors='coerce').fillna(2026).astype(int)
             
-            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
+            # --- THE AUTO RATING LOGIC ---
+            ratings = []
+            years = []
+            for title in manual_clean['Title']:
+                try:
+                    # Search IMDb for this title
+                    search = ia.search_movie(title)
+                    if search:
+                        m = ia.get_movie(search[0].movieID)
+                        ratings.append(m.get('rating', 0.0))
+                        years.append(m.get('year', 2026))
+                    else:
+                        ratings.append(0.0)
+                        years.append(2026)
+                except:
+                    ratings.append(0.0)
+                    years.append(2026)
+            
+            manual_clean['IMDb Rating'] = ratings
+            manual_clean['Year'] = years
+            
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
