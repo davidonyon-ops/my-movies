@@ -240,7 +240,7 @@ if selected_genres:
 st.write(f"🔍 Found **{len(filtered_df)}** movies matching your criteria")
 st.dataframe(filtered_df)
     
-    st.sidebar.divider()
+st.sidebar.divider()
     
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
     
