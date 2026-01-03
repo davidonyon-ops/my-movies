@@ -130,16 +130,22 @@ def add_manual_movie(title, source_name):
         return False
 
 def get_unique_sources(master_df):
-    # 1. Start with a default list
+    # 1. Start with your core manual categories
     sources = ["Manual", "TikTok", "YouTube", "Friend Recommendation"]
     
-    # 2. Add sources from the master dataframe (including your CSV names)
     if not master_df.empty:
-        existing_sources = master_df['Source List'].unique().tolist()
-        sources.extend(existing_sources)
+        # 2. Get all entries from the Source column
+        raw_sources = master_df['Source List'].unique().tolist()
+        
+        for s in raw_sources:
+            # 3. If a row says "Action, TikTok", split it into ["Action", "TikTok"]
+            # We split by the comma and strip out any extra spaces
+            parts = [p.strip() for p in str(s).split(',')]
+            sources.extend(parts)
     
-    # 3. Clean up: Remove duplicates and sort alphabetically
-    sources = sorted(list(set([str(s).strip() for s in sources if s])))
+    # 4. Remove duplicates, remove empty strings, and sort
+    # This ensures "TikTok" only appears once even if it was in a combo
+    sources = sorted(list(set([s for s in sources if s and s != 'nan'])))
     return sources
 
 # --- 3. INITIALIZATION ---
