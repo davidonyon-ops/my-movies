@@ -42,26 +42,19 @@ def load_imdb_data():
         
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
-            # 1. Get Title from the 3rd column
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
-            
-            # 2. Get the full "Smart Source" string from the 4th column
-            # This variable MUST be named source_col for the lines below to work
             source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # 3. Extract the actual Source (the text BEFORE the first | )
-            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
-            
-            # 4. Extract Year (The 4 digits between pipes)
+            # 1. Extract Year and Rating as before
             manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
-            
-            # 5. Extract Rating (The numbers before the ⭐)
             manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
             
-            # 6. Create the ID
-            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
+            # 2. Extract the REAL IMDb ID (The part after the last | )
+            # If it's not found, it defaults back to the M_ title ID
+            extracted_id = source_col.str.split('|').str[-1].str.strip()
+            manual_clean['Const'] = extracted_id.where(extracted_id.str.startswith('tt'), "M_" + manual_clean['Title'].astype(str))
             
-            # 7. Merge with the GitHub data
+            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
     except Exception as e:
@@ -181,20 +174,20 @@ search_query = st.sidebar.text_input("Movie Title:", key="omdb_search")
 
 if st.sidebar.button("Search & Add"):
     if search_query and OMDB_API_KEY != "YOUR_API_KEY_HERE":
-        # We talk directly to the OMDb API
         url = f"http://www.omdbapi.com/?t={search_query}&apikey={OMDB_API_KEY}"
         response = requests.get(url).json()
         
         if response.get("Response") == "True":
             title = response.get("Title")
-            year = response.get("Year")[:4] # Gets just the 2024 part
+            year = response.get("Year")[:4]
             rating = response.get("imdbRating", "0.0")
+            imdb_id = response.get("imdbID") # This is the "tt12345" part
             
-            # Pack it exactly how our loader likes it
-            smart_source = f"{manual_source} | {year} | {rating}⭐"
+            # We add the IMDb ID to the end of our smart string
+            smart_source = f"{manual_source} | {year} | {rating}⭐ | {imdb_id}"
             
             if add_manual_movie(title, smart_source):
-                st.sidebar.success(f"Found & Added: {title} ({year}) - {rating}⭐")
+                st.sidebar.success(f"Added: {title}")
                 st.cache_data.clear()
                 st.rerun()
         else:
@@ -230,7 +223,10 @@ if st.session_state.selected_movie_id:
     st.divider()
     st.subheader("🔗 Additional Info")
     b1, b2, b3 = st.columns(3)
-    with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/" if not str(movie['Const']).startswith('M_') else "#", use_container_width=True)
+    with b1: 
+        # This creates a proper link using the 'Const' ID we just extracted
+        imdb_url = f"https://www.imdb.com/title/{movie['Const']}/"
+        st.link_button("🎥 IMDb", imdb_url, use_container_width=True)
     with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
