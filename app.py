@@ -45,16 +45,19 @@ def load_imdb_data():
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
             source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # 1. Extract Year and Rating as before
-            manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
-            manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
+            # Split the string by the pipe symbol
+            parts = source_col.str.split(' | ')
             
-            # 2. Extract the REAL IMDb ID (The part after the last | )
-            # If it's not found, it defaults back to the M_ title ID
-            extracted_id = source_col.str.split('|').str[-1].str.strip()
-            manual_clean['Const'] = extracted_id.where(extracted_id.str.startswith('tt'), "M_" + manual_clean['Title'].astype(str))
+            manual_clean['Source List'] = parts.str[0]
+            manual_clean['Year'] = parts.str[1].fillna(2026).astype(int)
+            manual_clean['IMDb Rating'] = parts.str[2].str.replace('⭐', '').fillna(0.0).astype(float)
+            manual_clean['Const'] = parts.str[3]
             
-            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
+            # NEW: Unpack Genre, Director, and Actors
+            manual_clean['Genre'] = parts.str[4].fillna("N/A")
+            manual_clean['Director'] = parts.str[5].fillna("N/A")
+            manual_clean['Actors'] = parts.str[6].fillna("N/A")
+            
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
     except Exception as e:
@@ -66,11 +69,30 @@ def load_imdb_data():
     
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
-        'IMDb Rating': 'max'
+        'IMDb Rating': 'max',
+        'Genre': 'first',      # Keep existing Genre if it exists
+        'Director': 'first',   # Keep existing Director if it exists
+        'Actors': 'first'      # Keep existing Actors if it exists
     }).reset_index()
     
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
     return agg_df.sort_values('Hype Score', ascending=False)
+    
+def fetch_missing_info(row):
+        # Only fetch if Director is missing/NA
+        if pd.isna(row.get('Director')) or row.get('Director') == "N/A":
+            try:
+                url = f"http://www.omdbapi.com/?t={row['Title']}&apikey={OMDB_API_KEY}"
+                data = requests.get(url).json()
+                if data.get("Response") == "True":
+                    return pd.Series([data.get("Genre"), data.get("Director"), data.get("Actors")])
+            except:
+                pass
+        return pd.Series([row.get('Genre'), row.get('Director'), row.get('Actors')])
+        
+        agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
+
+    return agg_df
 
 def get_watched_list():
     try:
@@ -216,8 +238,14 @@ if st.sidebar.button("Search & Add"):
             rating = response.get("imdbRating", "0.0")
             imdb_id = response.get("imdbID")
             
-            # Use 'final_source' from our dropdown/text input combo
-            smart_source = f"{final_source} | {year} | {rating}⭐ | {imdb_id}"
+            # NEW: Get the extra details
+            genre = response.get("Genre", "N/A")
+            director = response.get("Director", "N/A")
+            actors = response.get("Actors", "N/A")
+            
+            # We pack it all into the Source field using a divider like '||'
+            # Format: Source | Year | Rating | ID | Genre | Director | Actors
+            smart_source = f"{final_source} | {year} | {rating}⭐ | {imdb_id} | {genre} | {director} | {actors}"
             
             if add_manual_movie(title, smart_source):
                 st.sidebar.success(f"Added: {title}")
@@ -247,8 +275,9 @@ if st.session_state.selected_movie_id:
     col1, col2 = st.columns(2)
     with col1:
         st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
-        st.write(f"**🎬 Director:** {movie.get('Directors', 'N/A')}")
-        st.write(f"**🎭 Genres:** {movie.get('Genres', 'N/A')}")
+        st.write(f"**Director:** {movie['Director']}")
+        st.write(f"**Genre:** {movie['Genre']}")
+        st.write(f"🎭 **Main Cast:** {movie.get('Actors', 'N/A')}")
     with col2:
         st.metric("Hype Score", f"{movie['Hype Score']} Lists")
         st.info(f"**📂 Lists:** {movie.get('Source List', 'N/A')}")
