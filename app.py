@@ -15,6 +15,7 @@ ENTRY_ID_CONST = "entry.505487716"
 ENTRY_ID_TITLE = "entry.1090297045" 
 ENTRY_ID_SOURCE = "entry.1247422407" 
 ia = Cinemagoer()
+OMDB_API_KEY = "2035a709" 
 
 # --- 2. DATA LOADING ---
 @st.cache_data(ttl=300)
@@ -175,39 +176,31 @@ if df is not None:
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-# 1. Manual Input for Source
-manual_source_input = st.sidebar.text_input("Source (e.g. TikTok, Friend):", value="Manual")
+manual_source = st.sidebar.text_input("Source:", value="Manual")
+search_query = st.sidebar.text_input("Movie Title:", key="omdb_search")
 
-# 2. Search Box
-search_query = st.sidebar.text_input("Search IMDb to add:", key="manual_search_input")
-search_btn = st.sidebar.button("Search IMDb")
-
-if search_btn and search_query:
-    try:
-        with st.sidebar.status("Searching IMDb...", expanded=True) as status:
-            results = ia.search_movie(search_query)
+if st.sidebar.button("Search & Add"):
+    if search_query and OMDB_API_KEY != "YOUR_API_KEY_HERE":
+        # We talk directly to the OMDb API
+        url = f"http://www.omdbapi.com/?t={search_query}&apikey={OMDB_API_KEY}"
+        response = requests.get(url).json()
+        
+        if response.get("Response") == "True":
+            title = response.get("Title")
+            year = response.get("Year")[:4] # Gets just the 2024 part
+            rating = response.get("imdbRating", "0.0")
             
-            if results:
-                for movie in results[:5]:
-                    title = movie.get('title')
-                    year = movie.get('year', '????')
-                    m_id = movie.movieID
-                    
-                    if st.button(f"✅ {title} ({year})", key=f"sel_{m_id}", use_container_width=True):
-                        full_info = ia.get_movie(m_id)
-                        rating = full_info.get('rating', 0.0)
-                        
-                        # We now include YOUR manual source at the front
-                        smart_source = f"{manual_source_input} | {year} | {rating}⭐"
-                        
-                        if add_manual_movie(title, smart_source):
-                            st.sidebar.success(f"Added {title}!")
-                            st.cache_data.clear()
-                            st.rerun()
-            else:
-                st.warning("No matches found.")
-    except Exception as e:
-        st.sidebar.error(f"Error: {e}")
+            # Pack it exactly how our loader likes it
+            smart_source = f"{manual_source} | {year} | {rating}⭐"
+            
+            if add_manual_movie(title, smart_source):
+                st.sidebar.success(f"Found & Added: {title} ({year}) - {rating}⭐")
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            st.sidebar.error("Movie not found in OMDb database.")
+    else:
+        st.sidebar.warning("Please enter a title and your API Key.")
 
 # --- 5. PAGE LOGIC ---
 if st.session_state.selected_movie_id:
