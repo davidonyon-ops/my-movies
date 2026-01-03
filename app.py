@@ -14,7 +14,7 @@ SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4G
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
 
 # 3. Your Entry ID (the bit before =TEST, e.g., 'entry.123456789')
-ENTRY_ID = "entry.R505487716"
+ENTRY_ID = "entry.505487716"
 
 # --- 2. DATA LOADING ---
 @st.cache_data
