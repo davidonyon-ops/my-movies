@@ -45,18 +45,31 @@ def load_imdb_data():
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
             source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # Split the string by the pipe symbol
+            # 1. Split the string
             parts = source_col.str.split(' | ')
             
-            manual_clean['Source List'] = parts.str[0]
-            manual_clean['Year'] = parts.str[1].fillna(2026).astype(int)
-            manual_clean['IMDb Rating'] = parts.str[2].str.replace('⭐', '').fillna(0.0).astype(float)
-            manual_clean['Const'] = parts.str[3]
+            # 2. FILTER: Remove the header row if it exists
+            # This keeps only rows where the title isn't 'Title' or 'Movie'
+            manual_clean = manual_clean[manual_clean['Title'].lower() != 'title']
             
-            # NEW: Unpack Genre, Director, and Actors
+            # 3. Extract data safely
+            manual_clean['Source List'] = parts.str[0]
+            
+            # Use pd.to_numeric with 'coerce' to turn errors (like the word 'Source') into empty values
+            years = pd.to_numeric(parts.str[1], errors='coerce')
+            manual_clean['Year'] = years.fillna(2026).astype(int)
+            
+            # Do the same for Rating
+            ratings = pd.to_numeric(parts.str[2].str.replace('⭐', ''), errors='coerce')
+            manual_clean['IMDb Rating'] = ratings.fillna(0.0).astype(float)
+            
+            manual_clean['Const'] = parts.str[3]
             manual_clean['Genre'] = parts.str[4].fillna("N/A")
             manual_clean['Director'] = parts.str[5].fillna("N/A")
             manual_clean['Actors'] = parts.str[6].fillna("N/A")
+
+            # Remove any rows that became empty after filtering
+            manual_clean = manual_clean.dropna(subset=['Title'])
             
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
