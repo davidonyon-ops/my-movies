@@ -51,23 +51,11 @@ def load_data():
     if 'Directors' in cols: agg_dict['Directors'] = 'first'
     if 'URL' in cols: agg_dict['URL'] = 'first'
     
-    # THE STAR FIX: Searching for any column that might contain actor data
-    # IMDb sometimes puts stars in 'Your Rating' (if you haven't rated it) or 'Stars'
-    cast_col = next((c for c in ['Stars', 'Cast', 'Starring', 'Cast Members'] if c in cols), None)
-    
-    if cast_col:
-        agg_dict[cast_col] = 'first'
-    
-    agg_dict['Title'] = 'count' # Hype Score
+    # Hype Score calculation
+    agg_dict['Title'] = 'count' 
 
     agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'})
     
-    if cast_col:
-        agg_df = agg_df.rename(columns={cast_col: 'Actors'})
-    else:
-        # Fallback: check if 'Your Rating' contains strings (sometimes cast is dumped here)
-        agg_df['Actors'] = "Check IMDb Page"
-        
     return agg_df.reset_index().sort_values('Hype Score', ascending=False)
 
 df = load_data()
@@ -94,7 +82,7 @@ if df is not None and not df.empty:
 
     st.sidebar.divider()
 
-    # 4. CSV File Filter (New Requested Feature)
+    # 4. CSV File Filter
     available_lists = sorted(list(set([item.strip() for sublist in df['Source List'].str.split(',') for item in sublist])))
     selected_lists = st.sidebar.multiselect("Filter by CSV/List Name:", available_lists)
 
@@ -115,7 +103,6 @@ if df is not None and not df.empty:
     ]
     
     if selected_lists:
-        # Checks if any of the selected list names appear in the 'Source List' string
         filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
 
     if selected_genres:
@@ -146,7 +133,7 @@ elif st.session_state.movie_choice != "--- Select a Movie ---":
             st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
             st.write(f"**🎬 Director:** {movie.get('Directors', 'N/A')}")
             st.write(f"**🎭 Genres:** {movie.get('Genres', 'N/A')}")
-            st.write(f"**🌟 Starring:** {movie.get('Actors', 'N/A')}")
+            # Starring row has been removed from here
             
         with col2:
             st.metric("Hype Score", f"{movie['Hype Score']} Lists")
