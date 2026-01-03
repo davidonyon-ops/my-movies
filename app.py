@@ -41,19 +41,26 @@ def load_imdb_data():
         
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
+            # 1. Get Title from the 3rd column
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
-            full_string = manual_entries.iloc[:, 3].astype(str)
             
-            # 1. Extract the actual Source (the text BEFORE the first | )
-            manual_clean['Source List'] = full_string.str.split('|').str[0].str.strip()
+            # 2. Get the full "Smart Source" string from the 4th column
+            # This variable MUST be named source_col for the lines below to work
+            source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # 1. Extract Year (The 4 digits between the | symbols)
+            # 3. Extract the actual Source (the text BEFORE the first | )
+            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
+            
+            # 4. Extract Year (The 4 digits between pipes)
             manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
             
-            # 2. Extract Rating (The numbers before the ⭐)
+            # 5. Extract Rating (The numbers before the ⭐)
             manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
-                       
+            
+            # 6. Create the ID
             manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
+            
+            # 7. Merge with the GitHub data
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
     except Exception as e:
