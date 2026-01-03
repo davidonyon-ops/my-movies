@@ -11,7 +11,7 @@ st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_i
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv"
 
 # 2. Your Google Form Submission URL (ends in /formResponse)
-FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/viewform?usp=pp_url&entry.505487716=TEST"
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
 
 # 3. Your Entry ID (the bit before =TEST, e.g., 'entry.123456789')
 ENTRY_ID = "entry.R505487716"
