@@ -5,34 +5,7 @@ import glob
 # Set Page Config
 st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_icon="🍿")
 
-# --- 1. GOOGLE SHEETS STORAGE LOGIC ---
-# Replace this with your actual Google Sheet link
-# Ensure the sheet has 'Anyone with link can edit' permissions
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/edit?usp=sharing"
-
-def get_watched_from_gsheet():
-    try:
-        # Converts a standard sheet URL into a CSV export URL
-        csv_url = GSHEET_URL.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit#gid=', '/export?format=csv&gid=')
-        watched_df = pd.read_csv(csv_url)
-        return set(watched_df['Const'].astype(str).tolist())
-    except:
-        return set()
-
-def save_watched_to_gsheet(const_id, action="add"):
-    # This uses a simple trick to 'submit' data via URL or instructs you on manual sync
-    # For a truly automated background save without complex API keys, 
-    # we use the Streamlit session but encourage a 'copy-paste' or simple API setup.
-    # To keep this simple and avoid 2 hours of Google Cloud Console setup:
-    if action == "add":
-        st.session_state.watched_ids.add(const_id)
-    else:
-        st.session_state.watched_ids.remove(const_id)
-    
-    st.warning("To permanently save, you would normally need a Google Service Account. "
-               "For now, your 'Watched' list is saved for this session.")
-
-# --- 2. DATA LOADING ---
+# --- 1. DATA LOADING ---
 @st.cache_data
 def load_data():
     files = glob.glob("*.csv")
@@ -46,47 +19,70 @@ def load_data():
             all_data.append(temp_df)
         except: continue
     if not all_data: return None
+    
     full_df = pd.concat(all_data, ignore_index=True)
     full_df['IMDb Rating'] = pd.to_numeric(full_df['IMDb Rating'], errors='coerce').fillna(0)
     full_df['Year'] = pd.to_numeric(full_df['Year'], errors='coerce').fillna(0).astype(int)
+    
     cols = full_df.columns
     group_keys = [c for c in ['Const', 'Title', 'Year', 'IMDb Rating'] if c in cols]
-    agg_dict = {'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
-                'Genres': 'first', 'Directors': 'first', 'URL': 'first', 'Title': 'count'}
+    
+    agg_dict = {
+        'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
+        'Genres': 'first', 
+        'Directors': 'first', 
+        'URL': 'first', 
+        'Title': 'count'
+    }
+    
     agg_df = full_df.groupby(group_keys).agg(agg_dict).rename(columns={'Title': 'Hype Score'})
     return agg_df.reset_index().sort_values('Hype Score', ascending=False)
 
 df = load_data()
 
-# --- 3. SESSION & PERMANENCE ---
+# --- 2. SESSION STATE ---
 if "watched_ids" not in st.session_state:
-    st.session_state.watched_ids = get_watched_from_gsheet()
+    st.session_state.watched_ids = set() # Replace with your GSheet loading logic if using
 if "movie_choice" not in st.session_state:
     st.session_state.movie_choice = "--- Select a Movie ---"
 
-# --- 4. SIDEBAR ---
+# --- 3. SIDEBAR ---
 st.sidebar.title("🔍 David's Filters")
+
 if df is not None:
+    # Navigation
     if st.sidebar.button("🏠 Show Full Master List", use_container_width=True):
         st.session_state.movie_choice = "--- Select a Movie ---"
         st.rerun()
 
+    # Drill down & Search
     movie_titles = ["--- Select a Movie ---"] + sorted(df['Title'].unique().tolist())
     st.sidebar.selectbox("Drill down for details:", movie_titles, key="movie_choice")
     search_query = st.sidebar.text_input("Title Search:")
     
     st.sidebar.divider()
-    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
     
+    # Watched & CSV Filters
+    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=False)
     available_lists = sorted(list(set([item.strip() for sublist in df['Source List'].str.split(',') for item in sublist])))
     selected_lists = st.sidebar.multiselect("Filter by CSV Name:", available_lists)
     
+    # DATA FILTERS (Rating & Year)
     min_rating, max_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, (6.0, 10.0), 0.5)
+    
+    # Restored Year Filter
+    yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
+    year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
+
     all_genres = sorted(list(set([g.strip() for sublist in df['Genres'].dropna().str.split(',') for g in sublist])))
     selected_genres = st.sidebar.multiselect("Specific Genres", all_genres)
 
+    # Apply All Logic
     filtered_df = df[
-        (df['IMDb Rating'] >= min_rating) & (df['IMDb Rating'] <= max_rating)
+        (df['IMDb Rating'] >= min_rating) & 
+        (df['IMDb Rating'] <= max_rating) &
+        (df['Year'] >= year_range[0]) & 
+        (df['Year'] <= year_range[1])
     ].copy()
 
     if hide_watched:
@@ -98,14 +94,15 @@ if df is not None:
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
-# --- 5. DISPLAY ---
+# --- 4. PAGE LOGIC ---
 if st.session_state.movie_choice != "--- Select a Movie ---":
+    # DETAIL PAGE
     movie = df[df['Title'] == st.session_state.movie_choice].iloc[0]
     m_id = str(movie['Const'])
     
     st.header(f"{movie['Title']} ({movie['Year']})")
     
-    # Watched Button Logic
+    # Watched Button
     if m_id in st.session_state.watched_ids:
         if st.button("✅ Watched (Click to unmark)"):
             st.session_state.watched_ids.remove(m_id)
@@ -132,6 +129,11 @@ if st.session_state.movie_choice != "--- Select a Movie ---":
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
 else:
+    # MAIN TABLE
     st.title("🎬 David's Movie Prioritizer")
-    if filtered_df is not None:
-        st.dataframe(filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']], hide_index=True, use_container_width=True)
+    if 'filtered_df' in locals() and filtered_df is not None:
+        st.dataframe(
+            filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']], 
+            hide_index=True, 
+            use_container_width=True
+        )
