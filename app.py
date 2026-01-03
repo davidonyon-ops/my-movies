@@ -42,42 +42,33 @@ df = load_data()
 
 # --- 2. SESSION STATE ---
 if "watched_ids" not in st.session_state:
-    st.session_state.watched_ids = set() # Replace with your GSheet loading logic if using
-if "movie_choice" not in st.session_state:
-    st.session_state.movie_choice = "--- Select a Movie ---"
+    st.session_state.watched_ids = set()
+if "selected_movie_id" not in st.session_state:
+    st.session_state.selected_movie_id = None
 
 # --- 3. SIDEBAR ---
 st.sidebar.title("🔍 David's Filters")
 
 if df is not None:
-    # Navigation
-    if st.sidebar.button("🏠 Show Full Master List", use_container_width=True):
-        st.session_state.movie_choice = "--- Select a Movie ---"
+    # Navigation: Return Home
+    if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
+        st.session_state.selected_movie_id = None
         st.rerun()
 
-    # Drill down & Search
-    movie_titles = ["--- Select a Movie ---"] + sorted(df['Title'].unique().tolist())
-    st.sidebar.selectbox("Drill down for details:", movie_titles, key="movie_choice")
     search_query = st.sidebar.text_input("Title Search:")
-    
     st.sidebar.divider()
     
-    # Watched & CSV Filters
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=False)
-    available_lists = sorted(list(set([item.strip() for sublist in df['Source List'].str.split(',') for item in sublist])))
-    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", available_lists)
+    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", sorted(list(set([item.strip() for sublist in df['Source List'].str.split(',') for item in sublist]))))
     
-    # DATA FILTERS (Rating & Year)
     min_rating, max_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, (6.0, 10.0), 0.5)
-    
-    # Restored Year Filter
     yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
     all_genres = sorted(list(set([g.strip() for sublist in df['Genres'].dropna().str.split(',') for g in sublist])))
     selected_genres = st.sidebar.multiselect("Specific Genres", all_genres)
 
-    # Apply All Logic
+    # Filtered Data for the Table
     filtered_df = df[
         (df['IMDb Rating'] >= min_rating) & 
         (df['IMDb Rating'] <= max_rating) &
@@ -95,9 +86,10 @@ if df is not None:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
 # --- 4. PAGE LOGIC ---
-if st.session_state.movie_choice != "--- Select a Movie ---":
-    # DETAIL PAGE
-    movie = df[df['Title'] == st.session_state.movie_choice].iloc[0]
+
+# If a movie is selected, show details
+if st.session_state.selected_movie_id:
+    movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
     m_id = str(movie['Const'])
     
     st.header(f"{movie['Title']} ({movie['Year']})")
@@ -128,12 +120,23 @@ if st.session_state.movie_choice != "--- Select a Movie ---":
     with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
+# Otherwise, show the table
 else:
-    # MAIN TABLE
     st.title("🎬 David's Movie Prioritizer")
+    st.write("💡 **Click a row** in the table to see full details and streaming info.")
+    
     if 'filtered_df' in locals() and filtered_df is not None:
-        st.dataframe(
+        # We use st.dataframe with selection mode enabled
+        event = st.dataframe(
             filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']], 
             hide_index=True, 
-            use_container_width=True
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single_row"
         )
+        
+        # If the user selects a row, update session state and rerun
+        if event.selection.rows:
+            selected_index = event.selection.rows[0]
+            st.session_state.selected_movie_id = filtered_df.iloc[selected_index]['Const']
+            st.rerun()
