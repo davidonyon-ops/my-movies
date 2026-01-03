@@ -42,26 +42,22 @@ def load_imdb_data():
         
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
-            # 1. Get Title from the 3rd column
             manual_clean['Title'] = manual_entries.iloc[:, 2] 
-            
-            # 2. Get the full "Smart Source" string from the 4th column
-            # This variable MUST be named source_col for the lines below to work
             source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # 3. Extract the actual Source (the text BEFORE the first | )
-            manual_clean['Source List'] = source_col.str.split('|').str[0].str.strip()
+            # Split the string by the pipe symbol
+            parts = source_col.str.split(' | ')
             
-            # 4. Extract Year (The 4 digits between pipes)
-            manual_clean['Year'] = source_col.str.extract(r'\| (\d{4}) \|').fillna(2026).astype(int)
+            manual_clean['Source List'] = parts.str[0]
+            manual_clean['Year'] = parts.str[1].fillna(2026).astype(int)
+            manual_clean['IMDb Rating'] = parts.str[2].str.replace('⭐', '').fillna(0.0).astype(float)
+            manual_clean['Const'] = parts.str[3]
             
-            # 5. Extract Rating (The numbers before the ⭐)
-            manual_clean['IMDb Rating'] = source_col.str.extract(r'\| ([\d.]+)⭐').fillna(0.0).astype(float)
+            # NEW: Unpack Genre, Director, and Actors
+            manual_clean['Genre'] = parts.str[4].fillna("N/A")
+            manual_clean['Director'] = parts.str[5].fillna("N/A")
+            manual_clean['Actors'] = parts.str[6].fillna("N/A")
             
-            # 6. Create the ID
-            manual_clean['Const'] = "M_" + manual_clean['Title'].astype(str)
-            
-            # 7. Merge with the GitHub data
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
             
     except Exception as e:
@@ -73,11 +69,30 @@ def load_imdb_data():
     
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
-        'IMDb Rating': 'max'
+        'IMDb Rating': 'max',
+        'Genre': 'first',      # Keep existing Genre if it exists
+        'Director': 'first',   # Keep existing Director if it exists
+        'Actors': 'first'      # Keep existing Actors if it exists
     }).reset_index()
     
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
     return agg_df.sort_values('Hype Score', ascending=False)
+    
+def fetch_missing_info(row):
+        # Only fetch if Director is missing/NA
+        if pd.isna(row.get('Director')) or row.get('Director') == "N/A":
+            try:
+                url = f"http://www.omdbapi.com/?t={row['Title']}&apikey={OMDB_API_KEY}"
+                data = requests.get(url).json()
+                if data.get("Response") == "True":
+                    return pd.Series([data.get("Genre"), data.get("Director"), data.get("Actors")])
+            except:
+                pass
+        return pd.Series([row.get('Genre'), row.get('Director'), row.get('Actors')])
+        
+        agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
+
+    return agg_df
 
 def get_watched_list():
     try:
@@ -136,6 +151,25 @@ def add_manual_movie(title, source_name):
     except:
         return False
 
+def get_unique_sources(master_df):
+    # 1. Start with your core manual categories
+    sources = ["Manual", "TikTok", "YouTube", "Friend Recommendation"]
+    
+    if not master_df.empty:
+        # 2. Get all entries from the Source column
+        raw_sources = master_df['Source List'].unique().tolist()
+        
+        for s in raw_sources:
+            # 3. If a row says "Action, TikTok", split it into ["Action", "TikTok"]
+            # We split by the comma and strip out any extra spaces
+            parts = [p.strip() for p in str(s).split(',')]
+            sources.extend(parts)
+    
+    # 4. Remove duplicates, remove empty strings, and sort
+    # This ensures "TikTok" only appears once even if it was in a combo
+    sources = sorted(list(set([s for s in sources if s and s != 'nan'])))
+    return sources
+
 # --- 3. INITIALIZATION ---
 df = load_imdb_data()
 if "watched_ids" not in st.session_state:
@@ -173,28 +207,48 @@ if df is not None:
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
+# First, get the list of available sources from the data we already loaded
+available_sources = get_unique_sources(df)
+
 st.sidebar.divider()
 st.sidebar.subheader("➕ Quick Add Movie")
 
-manual_source = st.sidebar.text_input("Source:", value="Manual")
-search_query = st.sidebar.text_input("Movie Title:", key="omdb_search")
+# Dropdown for Source
+# We use "index=0" to default to the first item (usually "Friend" or "Manual")
+selected_source = st.sidebar.selectbox("Where did you hear about it?", available_sources)
+
+# Add a "New Source" option if it's not in the list
+if st.sidebar.checkbox("Add a new source?"):
+    custom_source = st.sidebar.text_input("Type new source name:")
+    final_source = custom_source if custom_source else selected_source
+else:
+    final_source = selected_source
+
+# 2. Search Box
+search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
 
 if st.sidebar.button("Search & Add"):
     if search_query and OMDB_API_KEY != "YOUR_API_KEY_HERE":
-        # We talk directly to the OMDb API
         url = f"http://www.omdbapi.com/?t={search_query}&apikey={OMDB_API_KEY}"
         response = requests.get(url).json()
         
         if response.get("Response") == "True":
             title = response.get("Title")
-            year = response.get("Year")[:4] # Gets just the 2024 part
+            year = response.get("Year")[:4]
             rating = response.get("imdbRating", "0.0")
+            imdb_id = response.get("imdbID")
             
-            # Pack it exactly how our loader likes it
-            smart_source = f"{manual_source} | {year} | {rating}⭐"
+            # NEW: Get the extra details
+            genre = response.get("Genre", "N/A")
+            director = response.get("Director", "N/A")
+            actors = response.get("Actors", "N/A")
+            
+            # We pack it all into the Source field using a divider like '||'
+            # Format: Source | Year | Rating | ID | Genre | Director | Actors
+            smart_source = f"{final_source} | {year} | {rating}⭐ | {imdb_id} | {genre} | {director} | {actors}"
             
             if add_manual_movie(title, smart_source):
-                st.sidebar.success(f"Found & Added: {title} ({year}) - {rating}⭐")
+                st.sidebar.success(f"Added: {title}")
                 st.cache_data.clear()
                 st.rerun()
         else:
@@ -221,8 +275,9 @@ if st.session_state.selected_movie_id:
     col1, col2 = st.columns(2)
     with col1:
         st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
-        st.write(f"**🎬 Director:** {movie.get('Directors', 'N/A')}")
-        st.write(f"**🎭 Genres:** {movie.get('Genres', 'N/A')}")
+        st.write(f"**Director:** {movie['Director']}")
+        st.write(f"**Genre:** {movie['Genre']}")
+        st.write(f"🎭 **Main Cast:** {movie.get('Actors', 'N/A')}")
     with col2:
         st.metric("Hype Score", f"{movie['Hype Score']} Lists")
         st.info(f"**📂 Lists:** {movie.get('Source List', 'N/A')}")
@@ -230,7 +285,10 @@ if st.session_state.selected_movie_id:
     st.divider()
     st.subheader("🔗 Additional Info")
     b1, b2, b3 = st.columns(3)
-    with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/" if not str(movie['Const']).startswith('M_') else "#", use_container_width=True)
+    with b1: 
+        # This creates a proper link using the 'Const' ID we just extracted
+        imdb_url = f"https://www.imdb.com/title/{movie['Const']}/"
+        st.link_button("🎥 IMDb", imdb_url, use_container_width=True)
     with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
     with b3: st.link_button("📺 UK Streaming", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
