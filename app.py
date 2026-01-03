@@ -90,9 +90,9 @@ def fetch_missing_info(row):
                 pass
         return pd.Series([row.get('Genre'), row.get('Director'), row.get('Actors')])
         
-        agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
+agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
 
-    return agg_df
+return agg_df
 
 def get_watched_list():
     try:
