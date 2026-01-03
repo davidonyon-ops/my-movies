@@ -216,29 +216,43 @@ if df is not None:
 
     search_query = st.sidebar.text_input("Title Search:")
     
-    # 2. Sidebar Genre Filter
     selected_genres = st.sidebar.multiselect(
-    "Filter by Genre:",
-    options=genre_options,
-    default=[]
-)
+        "Filter by Genre:",
+        options=genre_options,
+        default=[]
+    )
 
-# 3. Apply the Filters to your dataframe
-    # 1. Start with the full list
-filtered_df = df.copy()
-
-# 2. Title Filter
-if search_query:
-    filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
-
-# 3. Genre Filter (The "Robust" Version)
-if selected_genres:
-    genre_pattern = '|'.join(selected_genres)
-    filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
-
-# 4. Final Display
-st.dataframe(filtered_df, use_container_width=True)
+    st.sidebar.divider()
     
+    hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
+    
+    lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
+    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
+    
+    min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
+    yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
+    year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
+
+    # --- APPLY ALL FILTERS AT ONCE ---
+    filtered_df = df[
+        (df['IMDb Rating'] >= min_rating) & 
+        (df['Year'] >= year_range[0]) & 
+        (df['Year'] <= year_range[1])
+    ].copy()
+
+    if hide_watched:
+        filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
+    
+    if selected_lists:
+        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
+    
+    if search_query:
+        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False, na=False)]
+    
+    if selected_genres:
+        genre_pattern = '|'.join(selected_genres)
+        filtered_df = filtered_df[filtered_df['Genre'].str.contains(genre_pattern, case=False, na=False)]
+  
 st.sidebar.divider()
     
 hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
