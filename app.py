@@ -8,7 +8,7 @@ st.set_page_config(page_title="David's Movie Prioritizer", layout="wide", page_i
 
 # --- 1. SETTINGS (ACTION REQUIRED) ---
 # 1. Your Google Sheet CSV Link (ends in /export?format=csv)
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv"
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12o_X4-184BAPYKZqzqcjv4GEsBtisVWl8bvE4Pyne64/export?format=csv&gid=2013918688"
 
 # 2. Your Google Form Submission URL (ends in /formResponse)
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdgws-uAGliOfkv7nDXonUEIyhl9snn5-DWzl20StGpo6RrCA/formResponse"
