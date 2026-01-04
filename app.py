@@ -67,20 +67,21 @@ def load_imdb_data():
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
+    # Grouping logic
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
         'IMDb Rating': 'max',
-        'Genre': 'first',      # Keep existing Genre if it exists
-        'Director': 'first',   # Keep existing Director if it exists
-        'Actors': 'first'      # Keep existing Actors if it exists
+        'Genre': 'first',
+        'Director': 'first',
+        'Actors': 'first'
     }).reset_index()
-    
+
     agg_df['Hype Score'] = agg_df['Source List'].str.count(',') + 1
-    return agg_df.sort_values('Hype Score', ascending=False)
-    
-def fetch_missing_info(row):
-        # Only fetch if Director is missing/NA
-        if pd.isna(row.get('Director')) or row.get('Director') == "N/A":
+    agg_df = agg_df.sort_values('Hype Score', ascending=False)
+
+    # Mini-function 
+    def fetch_missing_info(row):
+        if pd.isna(row.get('Director')) or row.get('Director') == "N/A" or row.get('Director') == "":
             try:
                 url = f"http://www.omdbapi.com/?t={row['Title']}&apikey={OMDB_API_KEY}"
                 data = requests.get(url).json()
@@ -89,9 +90,11 @@ def fetch_missing_info(row):
             except:
                 pass
         return pd.Series([row.get('Genre'), row.get('Director'), row.get('Actors')])
-        
-    agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
 
+    # Main Logic 
+    agg_df[['Genre', 'Director', 'Actors']] = agg_df.apply(fetch_missing_info, axis=1)
+    
+    # Return     # Return 
     return agg_df
 
 def get_watched_list():
