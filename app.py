@@ -115,9 +115,13 @@ if "watched_ids" not in st.session_state:
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
-# --- 4. SIDEBAR ---
-st.sidebar.title("🔍 David's Filters")
-if df is not None:
+# --- 4. NAVIGATION & SIDEBAR ---
+st.sidebar.title("🎮 Navigation")
+page = st.sidebar.radio("Go to:", ["Movie List", "Analytics"])
+
+if page == "Movie List":
+    st.sidebar.divider()
+    st.sidebar.title("🔍 Filters")
     if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
         st.session_state.selected_movie_id = None
         st.rerun()
@@ -143,93 +147,109 @@ if df is not None:
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
-available_sources = get_unique_sources(df)
-st.sidebar.divider()
-st.sidebar.subheader("➕ Quick Add Movie")
+    available_sources = get_unique_sources(df)
+    st.sidebar.divider()
+    st.sidebar.subheader("➕ Quick Add Movie")
 
-selected_source = st.sidebar.selectbox("Where did you hear about it?", available_sources)
-if st.sidebar.checkbox("Add a new source?"):
-    custom_source = st.sidebar.text_input("Type new source name:")
-    final_source = custom_source if custom_source else selected_source
-else:
-    final_source = selected_source
+    selected_source = st.sidebar.selectbox("Where did you hear about it?", available_sources)
+    if st.sidebar.checkbox("Add a new source?"):
+        custom_source = st.sidebar.text_input("Type new source name:")
+        final_source = custom_source if custom_source else selected_source
+    else:
+        final_source = selected_source
 
-add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
+    add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
 
-if st.sidebar.button("Search & Add"):
-    if add_search_query:
-        url = f"http://www.omdbapi.com/?t={add_search_query}&apikey={OMDB_API_KEY}"
-        res = requests.get(url).json()
-        if res.get("Response") == "True":
-            smart_source = f"{final_source} | {res.get('Year')[:4]} | {res.get('imdbRating')}⭐ | {res.get('imdbID')} | {res.get('Genre')} | {res.get('Director')} | {res.get('Actors')}"
-            if add_manual_movie(res.get("Title"), smart_source):
-                st.sidebar.success(f"Added: {res.get('Title')}")
-                st.cache_data.clear()
-                st.rerun()
-
-# --- 5. PAGE LOGIC ---
-if st.session_state.selected_movie_id:
-    # DETAIL PAGE
-    movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
-    
-    # Fetch Poster from API
-    poster_url = None
-    try:
-        url = f"http://www.omdbapi.com/?i={movie['Const']}&apikey={OMDB_API_KEY}"
-        res = requests.get(url).json()
-        poster_url = res.get("Poster") if res.get("Poster") != "N/A" else None
-    except: pass
-
-    st.header(f"{movie['Title']} ({movie['Year']})")
-    
-    col_poster, col_info = st.columns([1, 2])
-    
-    with col_poster:
-        if poster_url:
-            st.image(poster_url, use_container_width=True)
-        else:
-            st.info("No poster available")
-
-    with col_info:
-        if str(movie['Const']) in st.session_state.watched_ids:
-            st.success("✅ You have watched this movie.")
-        else:
-            if st.button("👁️ Watched"):
-                if mark_as_watched_permanent(str(movie['Const'])):
+    if st.sidebar.button("Search & Add"):
+        if add_search_query:
+            url = f"http://www.omdbapi.com/?t={add_search_query}&apikey={OMDB_API_KEY}"
+            res = requests.get(url).json()
+            if res.get("Response") == "True":
+                smart_source = f"{final_source} | {res.get('Year')[:4]} | {res.get('imdbRating')}⭐ | {res.get('imdbID')} | {res.get('Genre')} | {res.get('Director')} | {res.get('Actors')}"
+                if add_manual_movie(res.get("Title"), smart_source):
+                    st.sidebar.success(f"Added: {res.get('Title')}")
+                    st.cache_data.clear()
                     st.rerun()
 
-        st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
-        st.write(f"**Director:** {movie['Director']}")
-        st.write(f"**Genre:** {movie['Genre']}")
-        st.write(f"**🎭 Main Cast:** {movie.get('Actors', 'N/A')}")
-        st.metric("Hype Score", f"{movie['Hype Score']} Lists")
-        st.info(f"**📂 Lists:** {movie['Source List']}")
+    # --- 5. PAGE LOGIC: MOVIE LIST ---
+    if st.session_state.selected_movie_id:
+        movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
+        poster_url = None
+        try:
+            url = f"http://www.omdbapi.com/?i={movie['Const']}&apikey={OMDB_API_KEY}"
+            res = requests.get(url).json()
+            poster_url = res.get("Poster") if res.get("Poster") != "N/A" else None
+        except: pass
 
-    st.divider()
-    b1, b2, b3 = st.columns(3)
-    with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/", use_container_width=True)
-    with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
-    with b3: st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
+        st.header(f"{movie['Title']} ({movie['Year']})")
+        col_poster, col_info = st.columns([1, 2])
+        with col_poster:
+            if poster_url: st.image(poster_url, use_container_width=True)
+            else: st.info("No poster available")
+        with col_info:
+            if str(movie['Const']) in st.session_state.watched_ids: st.success("✅ You have watched this movie.")
+            else:
+                if st.button("👁️ Watched"):
+                    if mark_as_watched_permanent(str(movie['Const'])): st.rerun()
+            st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
+            st.write(f"**Director:** {movie['Director']}")
+            st.write(f"**Genre:** {movie['Genre']}")
+            st.write(f"**🎭 Main Cast:** {movie.get('Actors', 'N/A')}")
+            st.metric("Hype Score", f"{movie['Hype Score']} Lists")
+            st.info(f"**📂 Lists:** {movie['Source List']}")
 
-else:
-    # MAIN TABLE
-    st.title("🎬 David's Movie Prioritizer")
-    display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
-    display_df.insert(0, "View", False)
+        st.divider()
+        b1, b2, b3 = st.columns(3)
+        with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/", use_container_width=True)
+        with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
+        with b3: st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
+
+    else:
+        st.title("🎬 David's Movie Prioritizer")
+        display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
+        display_df.insert(0, "View", False)
+        edited_df = st.data_editor(
+            display_df,
+            column_config={
+                "View": st.column_config.CheckboxColumn("View", default=False),
+                "Hype Score": st.column_config.ProgressColumn("Hype Score", min_value=0, max_value=5, format="%f")
+            },
+            disabled=['Title', 'Year', 'IMDb Rating', 'Hype Score'],
+            hide_index=True, use_container_width=True, key="main_table"
+        )
+        selected_rows = edited_df[edited_df['View'] == True]
+        if not selected_rows.empty:
+            sel_title = selected_rows.iloc[0]['Title']
+            st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
+            st.rerun()
+
+elif page == "Analytics":
+    st.title("📊 Movie Analytics")
+    st.write("Visual breakdown of your library composition.")
+
+    # Process Genres for Pie Chart
+    genre_counts = {}
+    for g in df['Genre'].dropna().astype(str):
+        if g != "N/A" and g != "nan":
+            parts = [p.strip() for p in g.split(',')]
+            for p in parts:
+                genre_counts[p] = genre_counts.get(p, 0) + 1
     
-    # ADDING MICROCHART (Progress Bar) for Hype Score
-    edited_df = st.data_editor(
-        display_df,
-        column_config={
-            "View": st.column_config.CheckboxColumn("View", default=False),
-            "Hype Score": st.column_config.ProgressColumn("Hype Score", min_value=0, max_value=5, format="%f")
-        },
-        disabled=['Title', 'Year', 'IMDb Rating', 'Hype Score'],
-        hide_index=True, use_container_width=True, key="main_table"
-    )
-    
-    selected_rows = edited_df[edited_df['View'] == True]
-    if not selected_rows.empty:
-        sel_title = selected_rows.iloc[0]['Title']
-        st.session_state.selected_movie_id = filtered_df[filtered_df['Title'] == sel_title].iloc[0]['Const']
-        st.rerun()
+    if genre_counts:
+        genre_df = pd.DataFrame(list(genre_counts.items()), columns=['Genre', 'Count']).sort_values('Count', ascending=False)
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.subheader("Genre Distribution")
+            # Use plotly if available, else standard bar chart
+            st.bar_chart(data=genre_df, x='Genre', y='Count')
+        with col2:
+            st.subheader("Top Genres")
+            st.dataframe(genre_df, hide_index=True, use_container_width=True)
+            
+        st.divider()
+        st.subheader("Genre Breakdown (Pie)")
+        # Simple pie chart using streamlit (requires a specific format)
+        st.info("The bar chart above shows volume. Total unique genres found: " + str(len(genre_df)))
+    else:
+        st.warning("No genre data found to analyze.")
