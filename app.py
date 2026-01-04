@@ -128,65 +128,67 @@ if page == "Movie List":
         st.session_state.selected_movie_id = None
         st.rerun()
 
-    # Title & Watched (Streamlit handles these keys well automatically)
+    # Define Slider Bounds
+    yr_min_bound = int(df['Year'].min()) if not df.empty else 1900
+    yr_max_bound = int(df['Year'].max()) if not df.empty else 2026
+
+    # 1. Title Search (Sticky)
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
+    
+    # 2. Hide Watched (Sticky)
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
-    # CSV List Selection (Persistent)
+    # 3. CSV List Filter (Sticky)
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-    selected_lists = []
     with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
         st.write("Select sources to show:")
+        selected_lists = []
         for l in lists:
             is_checked = l in st.session_state.p_selected_lists
             if st.checkbox(l, value=is_checked, key=f"filter_{l}"):
                 selected_lists.append(l)
         st.session_state.p_selected_lists = selected_lists
     
-    # --- RATING PERSISTENCE ---
-    # Check if rating exists in state, otherwise default to 6.0
-    saved_rating = st.session_state.get("p_rating", 6.0)
-    min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, value=saved_rating, step=0.5, key="p_rating")
+    # 4. Rating Slider (Sticky)
+    st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, step=0.5, key="p_rating")
     
-    # --- YEAR PERSISTENCE ---
-    yr_min_bound = int(df['Year'].min()) if not df.empty else 1900
-    yr_max_bound = int(df['Year'].max()) if not df.empty else 2026
-    
-    # Check if year range exists in state, otherwise default to full range
-    saved_years = st.session_state.get("p_years", (yr_min_bound, yr_max_bound))
-    # Safety check: if state somehow saved a single int instead of a tuple, reset it
-    if not isinstance(saved_years, (tuple, list)):
-        saved_years = (yr_min_bound, yr_max_bound)
-
-    year_range = st.sidebar.slider(
+    # 5. Year Slider (Sticky)
+    st.sidebar.slider(
         "Release Year", 
         min_value=yr_min_bound, 
         max_value=yr_max_bound, 
-        value=saved_years, 
+        value=st.session_state.get("p_years", (yr_min_bound, yr_max_bound)), 
         key="p_years"
     )
 
-    # --- APPLY FILTERING LOGIC ---
+    # --- THE CRITICAL FIX: APPLY FILTERING DIRECTLY FROM SESSION STATE ---
     filtered_df = df.copy()
 
-    # 1. Rating
-    filtered_df = filtered_df[filtered_df['IMDb Rating'] >= min_rating]
-    
-    # 2. Year (with safety length check)
-    if len(year_range) == 2:
-        filtered_df = filtered_df[(filtered_df['Year'] >= year_range[0]) & (filtered_df['Year'] <= year_range[1])]
+    # Pull directly from state so the table matches the UI perfectly
+    f_rating = st.session_state.get("p_rating", 0.0)
+    f_years = st.session_state.get("p_years", (yr_min_bound, yr_max_bound))
+    f_search = st.session_state.get("p_search", "")
+    f_hide = st.session_state.get("p_hide", True)
+    f_lists = st.session_state.get("p_selected_lists", [])
 
-    # 3. Watched
-    if hide_watched:
+    # Apply Rating
+    filtered_df = filtered_df[filtered_df['IMDb Rating'] >= f_rating]
+    
+    # Apply Year
+    if isinstance(f_years, (list, tuple)) and len(f_years) == 2:
+        filtered_df = filtered_df[(filtered_df['Year'] >= f_years[0]) & (filtered_df['Year'] <= f_years[1])]
+
+    # Apply Watched
+    if f_hide:
         filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
     
-    # 4. CSV Source
-    if selected_lists:
-        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
+    # Apply CSV Source
+    if f_lists:
+        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in f_lists))]
     
-    # 5. Search
-    if search_query:
-        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
+    # Apply Search
+    if f_search:
+        filtered_df = filtered_df[filtered_df['Title'].str.contains(f_search, case=False)]
 
     st.sidebar.divider()
     st.sidebar.subheader("➕ Quick Add Movie")
