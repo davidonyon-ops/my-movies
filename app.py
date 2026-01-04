@@ -128,7 +128,7 @@ if page == "Movie List":
         st.session_state.selected_movie_id = None
         st.rerun()
 
-    # --- DEFINE FILTER WIDGETS FIRST ---
+    # Define filter widgets
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
@@ -142,21 +142,30 @@ if page == "Movie List":
                 selected_lists.append(l)
         st.session_state.p_selected_lists = selected_lists
     
-    # These variables now hold the current values from the sliders
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, step=0.5, key="p_rating")
     
+    # Calculate bounds
     yr_min_bound = int(df['Year'].min()) if not df.empty else 1900
     yr_max_bound = int(df['Year'].max()) if not df.empty else 2026
-    year_range = st.sidebar.slider("Release Year", yr_min_bound, yr_max_bound, key="p_years")
+    
+    # Ensure year_range is always a tuple by passing a tuple to the 'value' argument
+    year_range = st.sidebar.slider(
+        "Release Year", 
+        min_value=yr_min_bound, 
+        max_value=yr_max_bound, 
+        value=(yr_min_bound, yr_max_bound), 
+        key="p_years"
+    )
 
-    # --- NOW APPLY FILTERING LOGIC USING THE WIDGET VARIABLES ---
+    # --- APPLY FILTERING LOGIC ---
     filtered_df = df.copy()
 
     # Apply Rating Filter
     filtered_df = filtered_df[filtered_df['IMDb Rating'] >= min_rating]
     
-    # Apply Year Filter
-    filtered_df = filtered_df[(filtered_df['Year'] >= year_range[0]) & (filtered_df['Year'] <= year_range[1])]
+    # Apply Year Filter with Safety Check
+    if isinstance(year_range, (list, tuple)) and len(year_range) == 2:
+        filtered_df = filtered_df[(filtered_df['Year'] >= year_range[0]) & (filtered_df['Year'] <= year_range[1])]
 
     # Apply Watched Filter
     if hide_watched:
