@@ -114,15 +114,8 @@ if "watched_ids" not in st.session_state:
     st.session_state.watched_ids = get_watched_list()
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
-
-# Persistence Initialization for multiselect
 if "p_selected_lists" not in st.session_state:
     st.session_state.p_selected_lists = []
-
-if "p_years" not in st.session_state:
-    yr_min_init = int(df['Year'].min()) if not df.empty else 1900
-    yr_max_init = int(df['Year'].max()) if not df.empty else 2026
-    st.session_state.p_years = (yr_min_init, yr_max_init)
 
 # --- 4. NAVIGATION ---
 st.sidebar.title("🎮 Navigation")
@@ -135,7 +128,7 @@ if page == "Movie List":
         st.session_state.selected_movie_id = None
         st.rerun()
 
-    # PERSISTENCE: Added keys to all filter widgets
+    # --- DEFINE FILTER WIDGETS FIRST ---
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
@@ -144,37 +137,42 @@ if page == "Movie List":
     with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
         st.write("Select sources to show:")
         for l in lists:
-            # Check if it was previously selected in the session
             is_checked = l in st.session_state.p_selected_lists
             if st.checkbox(l, value=is_checked, key=f"filter_{l}"):
                 selected_lists.append(l)
         st.session_state.p_selected_lists = selected_lists
     
+    # These variables now hold the current values from the sliders
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, step=0.5, key="p_rating")
     
-    yr_min = int(df['Year'].min()) if not df.empty else 1900
-    yr_max = int(df['Year'].max()) if not df.empty else 2026
-    # Persistence key for the slider
-    year_range = st.sidebar.slider("Release Year", yr_min, yr_max, key="p_years")
+    yr_min_bound = int(df['Year'].min()) if not df.empty else 1900
+    yr_max_bound = int(df['Year'].max()) if not df.empty else 2026
+    year_range = st.sidebar.slider("Release Year", yr_min_bound, yr_max_bound, key="p_years")
 
-    # Applying the persisted filters
-    filtered_df = df[
-        (df['IMDb Rating'] >= st.session_state.p_rating) & 
-        (df['Year'] >= st.session_state.p_years[0]) & (df['Year'] <= st.session_state.p_years[1])
-    ].copy()
+    # --- NOW APPLY FILTERING LOGIC USING THE WIDGET VARIABLES ---
+    filtered_df = df.copy()
 
-    if st.session_state.p_hide:
+    # Apply Rating Filter
+    filtered_df = filtered_df[filtered_df['IMDb Rating'] >= min_rating]
+    
+    # Apply Year Filter
+    filtered_df = filtered_df[(filtered_df['Year'] >= year_range[0]) & (filtered_df['Year'] <= year_range[1])]
+
+    # Apply Watched Filter
+    if hide_watched:
         filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
-    if st.session_state.p_selected_lists:
-        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in st.session_state.p_selected_lists))]
-    if st.session_state.p_search:
-        filtered_df = filtered_df[filtered_df['Title'].str.contains(st.session_state.p_search, case=False)]
+    
+    # Apply List Filter
+    if selected_lists:
+        filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
+    
+    # Apply Search Filter
+    if search_query:
+        filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
     st.sidebar.divider()
     st.sidebar.subheader("➕ Quick Add Movie")
-
     available_sources = get_unique_sources(df)
-    final_source = "Manual"
     with st.sidebar.popover("📍 Select Source", use_container_width=True):
         final_source = st.radio("Choose source:", available_sources)
         if st.checkbox("Add new custom source?"):
