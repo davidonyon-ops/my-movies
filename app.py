@@ -27,8 +27,8 @@ def load_imdb_data():
         try:
             temp_df = pd.read_csv(f, encoding='latin1')
             temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
-            # Map 'Genres' to 'Genre' if it exists in the CSV
-            if 'Genres' in temp_df.columns:
+            # Fix: Ensure both 'Genre' and 'Genres' are captured
+            if 'Genres' in temp_df.columns and 'Genre' not in temp_df.columns:
                 temp_df['Genre'] = temp_df['Genres']
             temp_df['Source List'] = f.replace('.csv', '')
             all_github_data.append(temp_df)
@@ -63,10 +63,9 @@ def load_imdb_data():
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
 
-    # Ensure all required columns exist
-    for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year']:
-        if col not in master_df.columns:
-            master_df[col] = "N/A"
+    # Final column safety check
+    for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year', 'Const']:
+        if col not in master_df.columns: master_df[col] = "N/A"
 
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
@@ -135,7 +134,7 @@ if page == "Movie List":
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
     selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
-    yr_min, yr_max = int(df['Year'].min()), int(df['Year'].max())
+    yr_min, yr_max = int(df['Year'].min()) if not df.empty else 1900, int(df['Year'].max()) if not df.empty else 2026
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
     filtered_df = df[
@@ -176,7 +175,6 @@ if page == "Movie List":
 
     # --- MAIN DISPLAY LOGIC ---
     if st.session_state.selected_movie_id:
-        # DETAIL PAGE
         movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
         poster_url = None
         try:
@@ -210,7 +208,6 @@ if page == "Movie List":
         with b3: st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
     else:
-        # MASTER TABLE
         st.title("🎬 David's Movie Prioritizer")
         display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
         display_df.insert(0, "View", False)
@@ -232,22 +229,27 @@ if page == "Movie List":
 elif page == "Analytics":
     st.title("📊 Movie Analytics")
     
-    # Process Genres
-    genre_counts = {}
+    # IMPROVED GENRE PROCESSING
+    all_genres = []
     for g in df['Genre'].dropna().astype(str):
+        # Handle N/A, empty strings, or actual genre lists
         if g not in ["N/A", "nan", "None", ""]:
+            # Split "Action, Sci-Fi" into ["Action", "Sci-Fi"]
             parts = [p.strip() for p in g.split(',')]
-            for p in parts:
-                genre_counts[p] = genre_counts.get(p, 0) + 1
+            all_genres.extend(parts)
     
-    if genre_counts:
-        genre_df = pd.DataFrame(list(genre_counts.items()), columns=['Genre', 'Count'])
+    if all_genres:
+        genre_df = pd.Series(all_genres).value_counts().reset_index()
+        genre_df.columns = ['Genre', 'Count']
         
-        # DISPLAY ONLY PIE CHART
-        fig = px.pie(genre_df, values='Count', names='Genre', title='Genre Distribution of Your Library')
+        # DISPLAY PIE CHART
+        fig = px.pie(genre_df, values='Count', names='Genre', 
+                     title=f'Genre Distribution ({len(df)} Movies Total)',
+                     hole=0.4) # Makes it a donut chart (clearer to read)
+        
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.write(f"Total Movies Analyzed: {len(df[df['Genre'] != 'N/A'])}")
+        st.write(f"**Insight:** You have {len(genre_df)} unique genres in your prioritizer.")
     else:
-        st.warning("No genre data found. Try viewing some movies to fetch their details first!")
+        st.warning("No genre data found. Ensure your CSVs have a 'Genre' or 'Genres' column.")
