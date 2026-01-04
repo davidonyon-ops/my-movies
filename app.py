@@ -27,7 +27,6 @@ def load_imdb_data():
         try:
             temp_df = pd.read_csv(f, encoding='latin1')
             temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
-            # Fix: Ensure both 'Genre' and 'Genres' are captured
             if 'Genres' in temp_df.columns and 'Genre' not in temp_df.columns:
                 temp_df['Genre'] = temp_df['Genres']
             temp_df['Source List'] = f.replace('.csv', '')
@@ -63,7 +62,6 @@ def load_imdb_data():
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
 
-    # Final column safety check
     for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year', 'Const']:
         if col not in master_df.columns: master_df[col] = "N/A"
 
@@ -102,7 +100,7 @@ def add_manual_movie(title, smart_source):
     except: return False
 
 def get_unique_sources(master_df):
-    sources = ["Manual", "TikTok", "YouTube", "Friend Recommendation"]
+    sources = ["Manual", "TikTok", "YouTube", "Friend"]
     if not master_df.empty:
         raw_sources = master_df['Source List'].unique().tolist()
         for s in raw_sources:
@@ -131,10 +129,18 @@ if page == "Movie List":
     search_query = st.sidebar.text_input("Title Search:")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True)
     
+    # MOBILE FIX: Use Popover for Source Filtering
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
-    selected_lists = st.sidebar.multiselect("Filter by CSV Name:", lists)
+    selected_lists = []
+    with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
+        st.write("Select sources to show:")
+        for l in lists:
+            if st.checkbox(l, key=f"filter_{l}"):
+                selected_lists.append(l)
+    
     min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, 6.0, 0.5)
-    yr_min, yr_max = int(df['Year'].min()) if not df.empty else 1900, int(df['Year'].max()) if not df.empty else 2026
+    yr_min = int(df['Year'].min()) if not df.empty else 1900
+    yr_max = int(df['Year'].max()) if not df.empty else 2026
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, (yr_min, yr_max))
 
     filtered_df = df[
@@ -149,16 +155,17 @@ if page == "Movie List":
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
-    available_sources = get_unique_sources(df)
     st.sidebar.divider()
     st.sidebar.subheader("➕ Quick Add Movie")
 
-    selected_source = st.sidebar.selectbox("Where did you hear about it?", available_sources)
-    if st.sidebar.checkbox("Add a new source?"):
-        custom_source = st.sidebar.text_input("Type new source name:")
-        final_source = custom_source if custom_source else selected_source
-    else:
-        final_source = selected_source
+    # MOBILE FIX: Use Popover for "Where from?"
+    available_sources = get_unique_sources(df)
+    final_source = "Manual"
+    with st.sidebar.popover("📍 Select Source", use_container_width=True):
+        final_source = st.radio("Choose source:", available_sources)
+        if st.checkbox("Add new custom source?"):
+            custom = st.text_input("Enter source name:")
+            if custom: final_source = custom
 
     add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
 
@@ -228,28 +235,20 @@ if page == "Movie List":
 
 elif page == "Analytics":
     st.title("📊 Movie Analytics")
-    
-    # IMPROVED GENRE PROCESSING
     all_genres = []
     for g in df['Genre'].dropna().astype(str):
-        # Handle N/A, empty strings, or actual genre lists
         if g not in ["N/A", "nan", "None", ""]:
-            # Split "Action, Sci-Fi" into ["Action", "Sci-Fi"]
             parts = [p.strip() for p in g.split(',')]
             all_genres.extend(parts)
     
     if all_genres:
         genre_df = pd.Series(all_genres).value_counts().reset_index()
         genre_df.columns = ['Genre', 'Count']
-        
-        # DISPLAY PIE CHART
         fig = px.pie(genre_df, values='Count', names='Genre', 
                      title=f'Genre Distribution ({len(df)} Movies Total)',
-                     hole=0.4) # Makes it a donut chart (clearer to read)
-        
+                     hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
-        
         st.divider()
         st.write(f"**Insight:** You have {len(genre_df)} unique genres in your prioritizer.")
     else:
-        st.warning("No genre data found. Ensure your CSVs have a 'Genre' or 'Genres' column.")
+        st.warning("No genre data found.")
