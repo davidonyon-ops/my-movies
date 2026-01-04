@@ -128,10 +128,11 @@ if page == "Movie List":
         st.session_state.selected_movie_id = None
         st.rerun()
 
-    # Define filter widgets
+    # Title & Watched (Streamlit handles these keys well automatically)
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
+    # CSV List Selection (Persistent)
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
     selected_lists = []
     with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
@@ -142,40 +143,48 @@ if page == "Movie List":
                 selected_lists.append(l)
         st.session_state.p_selected_lists = selected_lists
     
-    min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, step=0.5, key="p_rating")
+    # --- RATING PERSISTENCE ---
+    # Check if rating exists in state, otherwise default to 6.0
+    saved_rating = st.session_state.get("p_rating", 6.0)
+    min_rating = st.sidebar.slider("Min IMDb Rating", 0.0, 10.0, value=saved_rating, step=0.5, key="p_rating")
     
-    # Calculate bounds
+    # --- YEAR PERSISTENCE ---
     yr_min_bound = int(df['Year'].min()) if not df.empty else 1900
     yr_max_bound = int(df['Year'].max()) if not df.empty else 2026
     
-    # Ensure year_range is always a tuple by passing a tuple to the 'value' argument
+    # Check if year range exists in state, otherwise default to full range
+    saved_years = st.session_state.get("p_years", (yr_min_bound, yr_max_bound))
+    # Safety check: if state somehow saved a single int instead of a tuple, reset it
+    if not isinstance(saved_years, (tuple, list)):
+        saved_years = (yr_min_bound, yr_max_bound)
+
     year_range = st.sidebar.slider(
         "Release Year", 
         min_value=yr_min_bound, 
         max_value=yr_max_bound, 
-        value=(yr_min_bound, yr_max_bound), 
+        value=saved_years, 
         key="p_years"
     )
 
     # --- APPLY FILTERING LOGIC ---
     filtered_df = df.copy()
 
-    # Apply Rating Filter
+    # 1. Rating
     filtered_df = filtered_df[filtered_df['IMDb Rating'] >= min_rating]
     
-    # Apply Year Filter with Safety Check
-    if isinstance(year_range, (list, tuple)) and len(year_range) == 2:
+    # 2. Year (with safety length check)
+    if len(year_range) == 2:
         filtered_df = filtered_df[(filtered_df['Year'] >= year_range[0]) & (filtered_df['Year'] <= year_range[1])]
 
-    # Apply Watched Filter
+    # 3. Watched
     if hide_watched:
         filtered_df = filtered_df[~filtered_df['Const'].astype(str).isin(st.session_state.watched_ids)]
     
-    # Apply List Filter
+    # 4. CSV Source
     if selected_lists:
         filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in selected_lists))]
     
-    # Apply Search Filter
+    # 5. Search
     if search_query:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(search_query, case=False)]
 
