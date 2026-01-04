@@ -45,14 +45,10 @@ def load_imdb_data():
             mask = (titles.str.lower() != 'title') & (source_col.str.contains('\|'))
             manual_clean['Title'] = titles[mask]
             
-            # FIX: Use ' | ' with spaces to split correctly
             parts = source_col[mask].str.split(' \| ')
             
             manual_clean['Source List'] = parts.str[0]
-            
-            # FIX: Properly parse Year and Rating to avoid 2026/1999 defaults
             manual_clean['Year'] = pd.to_numeric(parts.str[1], errors='coerce').astype('Int64')
-            
             raw_ratings = parts.str[2].str.replace('⭐', '', regex=False)
             manual_clean['IMDb Rating'] = pd.to_numeric(raw_ratings, errors='coerce')
             
@@ -165,7 +161,6 @@ if st.sidebar.button("Search & Add"):
         url = f"http://www.omdbapi.com/?t={add_search_query}&apikey={OMDB_API_KEY}"
         res = requests.get(url).json()
         if res.get("Response") == "True":
-            # PACKING THE STRING: Source | Year | Rating | ID | Genre | Director | Actors
             smart_source = f"{final_source} | {res.get('Year')[:4]} | {res.get('imdbRating')}⭐ | {res.get('imdbID')} | {res.get('Genre')} | {res.get('Director')} | {res.get('Actors')}"
             if add_manual_movie(res.get("Title"), smart_source):
                 st.sidebar.success(f"Added: {res.get('Title')}")
@@ -176,23 +171,37 @@ if st.sidebar.button("Search & Add"):
 if st.session_state.selected_movie_id:
     # DETAIL PAGE
     movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
+    
+    # Fetch Poster from API
+    poster_url = None
+    try:
+        url = f"http://www.omdbapi.com/?i={movie['Const']}&apikey={OMDB_API_KEY}"
+        res = requests.get(url).json()
+        poster_url = res.get("Poster") if res.get("Poster") != "N/A" else None
+    except: pass
+
     st.header(f"{movie['Title']} ({movie['Year']})")
     
-    if str(movie['Const']) in st.session_state.watched_ids:
-        st.success("✅ You have watched this movie.")
-    else:
-        if st.button("👁️ Watched"):
-            if mark_as_watched_permanent(str(movie['Const'])):
-                st.rerun()
+    col_poster, col_info = st.columns([1, 2])
+    
+    with col_poster:
+        if poster_url:
+            st.image(poster_url, use_container_width=True)
+        else:
+            st.info("No poster available")
 
-    col1, col2 = st.columns(2)
-    with col1:
+    with col_info:
+        if str(movie['Const']) in st.session_state.watched_ids:
+            st.success("✅ You have watched this movie.")
+        else:
+            if st.button("👁️ Watched"):
+                if mark_as_watched_permanent(str(movie['Const'])):
+                    st.rerun()
+
         st.metric("IMDb Rating", f"{movie['IMDb Rating']} ⭐")
         st.write(f"**Director:** {movie['Director']}")
         st.write(f"**Genre:** {movie['Genre']}")
-        # FIX: Added Main Cast
         st.write(f"**🎭 Main Cast:** {movie.get('Actors', 'N/A')}")
-    with col2:
         st.metric("Hype Score", f"{movie['Hype Score']} Lists")
         st.info(f"**📂 Lists:** {movie['Source List']}")
 
@@ -208,9 +217,13 @@ else:
     display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
     display_df.insert(0, "View", False)
     
+    # ADDING MICROCHART (Progress Bar) for Hype Score
     edited_df = st.data_editor(
         display_df,
-        column_config={"View": st.column_config.CheckboxColumn("View", default=False)},
+        column_config={
+            "View": st.column_config.CheckboxColumn("View", default=False),
+            "Hype Score": st.column_config.ProgressColumn("Hype Score", min_value=0, max_value=5, format="%f")
+        },
         disabled=['Title', 'Year', 'IMDb Rating', 'Hype Score'],
         hide_index=True, use_container_width=True, key="main_table"
     )
