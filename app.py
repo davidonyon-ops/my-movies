@@ -42,24 +42,26 @@ def load_imdb_data():
         
         if not manual_entries.empty:
             manual_clean = pd.DataFrame()
-            manual_clean['Title'] = manual_entries.iloc[:, 2] 
+            
+            # 1. Temporarily grab the data
+            titles = manual_entries.iloc[:, 2].astype(str)
             source_col = manual_entries.iloc[:, 3].astype(str)
             
-            # 1. Split the string
-            parts = source_col.str.split(' | ')
+            # 2. FILTER out the header row properly
+            # We use .str.lower() to check the whole column
+            mask = titles.str.lower() != 'title'
+            manual_clean['Title'] = titles[mask]
             
-            # 2. FILTER: Remove the header row if it exists
-            # This keeps only rows where the title isn't 'Title' or 'Movie'
-            manual_clean = manual_clean[manual_clean['Title'].lower() != 'title']
+            # 3. Split the source string only for the non-header rows
+            parts = source_col[mask].str.split(' | ')
             
-            # 3. Extract data safely
+            # 4. Extract data safely
             manual_clean['Source List'] = parts.str[0]
             
-            # Use pd.to_numeric with 'coerce' to turn errors (like the word 'Source') into empty values
+            # Use pd.to_numeric with 'coerce' to handle non-numbers safely
             years = pd.to_numeric(parts.str[1], errors='coerce')
             manual_clean['Year'] = years.fillna(2026).astype(int)
             
-            # Do the same for Rating
             ratings = pd.to_numeric(parts.str[2].str.replace('⭐', ''), errors='coerce')
             manual_clean['IMDb Rating'] = ratings.fillna(0.0).astype(float)
             
@@ -68,7 +70,7 @@ def load_imdb_data():
             manual_clean['Director'] = parts.str[5].fillna("N/A")
             manual_clean['Actors'] = parts.str[6].fillna("N/A")
 
-            # Remove any rows that became empty after filtering
+            # Final cleanup of any empty rows
             manual_clean = manual_clean.dropna(subset=['Title'])
             
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
