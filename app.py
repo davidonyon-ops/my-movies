@@ -3,6 +3,7 @@ import pandas as pd
 import glob
 import requests
 import time
+import plotly.express as px
 from imdb import Cinemagoer
 
 # Set Page Config
@@ -26,6 +27,9 @@ def load_imdb_data():
         try:
             temp_df = pd.read_csv(f, encoding='latin1')
             temp_df.columns = temp_df.columns.str.strip().str.replace('ï»¿', '')
+            # Map 'Genres' to 'Genre' if it exists in the CSV
+            if 'Genres' in temp_df.columns:
+                temp_df['Genre'] = temp_df['Genres']
             temp_df['Source List'] = f.replace('.csv', '')
             all_github_data.append(temp_df)
         except: continue
@@ -41,33 +45,32 @@ def load_imdb_data():
             manual_clean = pd.DataFrame()
             titles = manual_entries.iloc[:, 2].astype(str)
             source_col = manual_entries.iloc[:, 3].astype(str)
-            
             mask = (titles.str.lower() != 'title') & (source_col.str.contains('\|'))
-            manual_clean['Title'] = titles[mask]
             
+            manual_clean['Title'] = titles[mask]
             parts = source_col[mask].str.split(' \| ')
             
             manual_clean['Source List'] = parts.str[0]
             manual_clean['Year'] = pd.to_numeric(parts.str[1], errors='coerce').astype('Int64')
             raw_ratings = parts.str[2].str.replace('⭐', '', regex=False)
             manual_clean['IMDb Rating'] = pd.to_numeric(raw_ratings, errors='coerce')
-            
             manual_clean['Const'] = parts.str[3]
             manual_clean['Genre'] = parts.str[4]
             manual_clean['Director'] = parts.str[5]
             manual_clean['Actors'] = parts.str[6]
             
             master_df = pd.concat([master_df, manual_clean], ignore_index=True)
-            
     except Exception as e:
         st.sidebar.error(f"Sync Error: {e}")
+
+    # Ensure all required columns exist
+    for col in ['Genre', 'Director', 'Actors', 'IMDb Rating', 'Year']:
+        if col not in master_df.columns:
+            master_df[col] = "N/A"
 
     master_df['IMDb Rating'] = pd.to_numeric(master_df['IMDb Rating'], errors='coerce').fillna(0)
     master_df['Year'] = pd.to_numeric(master_df['Year'], errors='coerce').fillna(0).astype(int)
     
-    for col in ['Genre', 'Director', 'Actors']:
-        if col not in master_df.columns: master_df[col] = "N/A"
-
     agg_df = master_df.groupby(['Title', 'Year', 'Const']).agg({
         'Source List': lambda x: ", ".join(sorted(set(x.astype(str)))),
         'IMDb Rating': 'max',
@@ -115,7 +118,7 @@ if "watched_ids" not in st.session_state:
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
-# --- 4. NAVIGATION & SIDEBAR ---
+# --- 4. NAVIGATION ---
 st.sidebar.title("🎮 Navigation")
 page = st.sidebar.radio("Go to:", ["Movie List", "Analytics"])
 
@@ -171,8 +174,9 @@ if page == "Movie List":
                     st.cache_data.clear()
                     st.rerun()
 
-    # --- 5. PAGE LOGIC: MOVIE LIST ---
+    # --- MAIN DISPLAY LOGIC ---
     if st.session_state.selected_movie_id:
+        # DETAIL PAGE
         movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
         poster_url = None
         try:
@@ -187,7 +191,8 @@ if page == "Movie List":
             if poster_url: st.image(poster_url, use_container_width=True)
             else: st.info("No poster available")
         with col_info:
-            if str(movie['Const']) in st.session_state.watched_ids: st.success("✅ You have watched this movie.")
+            if str(movie['Const']) in st.session_state.watched_ids:
+                st.success("✅ You have watched this movie.")
             else:
                 if st.button("👁️ Watched"):
                     if mark_as_watched_permanent(str(movie['Const'])): st.rerun()
@@ -205,6 +210,7 @@ if page == "Movie List":
         with b3: st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
     else:
+        # MASTER TABLE
         st.title("🎬 David's Movie Prioritizer")
         display_df = filtered_df[['Title', 'Year', 'IMDb Rating', 'Hype Score']].copy()
         display_df.insert(0, "View", False)
@@ -225,31 +231,23 @@ if page == "Movie List":
 
 elif page == "Analytics":
     st.title("📊 Movie Analytics")
-    st.write("Visual breakdown of your library composition.")
-
-    # Process Genres for Pie Chart
+    
+    # Process Genres
     genre_counts = {}
     for g in df['Genre'].dropna().astype(str):
-        if g != "N/A" and g != "nan":
+        if g not in ["N/A", "nan", "None", ""]:
             parts = [p.strip() for p in g.split(',')]
             for p in parts:
                 genre_counts[p] = genre_counts.get(p, 0) + 1
     
     if genre_counts:
-        genre_df = pd.DataFrame(list(genre_counts.items()), columns=['Genre', 'Count']).sort_values('Count', ascending=False)
+        genre_df = pd.DataFrame(list(genre_counts.items()), columns=['Genre', 'Count'])
         
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.subheader("Genre Distribution")
-            # Use plotly if available, else standard bar chart
-            st.bar_chart(data=genre_df, x='Genre', y='Count')
-        with col2:
-            st.subheader("Top Genres")
-            st.dataframe(genre_df, hide_index=True, use_container_width=True)
-            
+        # DISPLAY ONLY PIE CHART
+        fig = px.pie(genre_df, values='Count', names='Genre', title='Genre Distribution of Your Library')
+        st.plotly_chart(fig, use_container_width=True)
+        
         st.divider()
-        st.subheader("Genre Breakdown (Pie)")
-        # Simple pie chart using streamlit (requires a specific format)
-        st.info("The bar chart above shows volume. Total unique genres found: " + str(len(genre_df)))
+        st.write(f"Total Movies Analyzed: {len(df[df['Genre'] != 'N/A'])}")
     else:
-        st.warning("No genre data found to analyze.")
+        st.warning("No genre data found. Try viewing some movies to fetch their details first!")
