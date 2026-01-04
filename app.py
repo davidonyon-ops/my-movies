@@ -119,6 +119,11 @@ if "selected_movie_id" not in st.session_state:
 if "p_selected_lists" not in st.session_state:
     st.session_state.p_selected_lists = []
 
+if "p_years" not in st.session_state:
+    yr_min_init = int(df['Year'].min()) if not df.empty else 1900
+    yr_max_init = int(df['Year'].max()) if not df.empty else 2026
+    st.session_state.p_years = (yr_min_init, yr_max_init)
+
 # --- 4. NAVIGATION ---
 st.sidebar.title("🎮 Navigation")
 page = st.sidebar.radio("Go to:", ["Movie List", "Analytics"])
