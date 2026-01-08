@@ -115,7 +115,7 @@ if "watched_ids" not in st.session_state:
 if "selected_movie_id" not in st.session_state:
     st.session_state.selected_movie_id = None
 
-# Persistence Initialization for multiselect
+# Persistence Initialization
 if "p_selected_lists" not in st.session_state:
     st.session_state.p_selected_lists = []
     
@@ -135,7 +135,6 @@ if page == "Movie List":
         st.session_state.selected_movie_id = None
         st.rerun()
 
-    # PERSISTENCE: Added keys to all filter widgets
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
@@ -144,7 +143,6 @@ if page == "Movie List":
     with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
         st.write("Select sources to show:")
         for l in lists:
-            # Check if it was previously selected in the session
             is_checked = l in st.session_state.p_selected_lists
             if st.checkbox(l, value=is_checked, key=f"filter_{l}"):
                 selected_lists.append(l)
@@ -154,10 +152,9 @@ if page == "Movie List":
     
     yr_min = int(df['Year'].min()) if not df.empty else 1900
     yr_max = int(df['Year'].max()) if not df.empty else 2026
-    # Persistence key for the slider
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, key="p_years")
 
-    # Applying the persisted filters
+    # Applying filters
     filtered_df = df[
         (df['IMDb Rating'] >= st.session_state.p_rating) & 
         (df['Year'] >= st.session_state.p_years[0]) & (df['Year'] <= st.session_state.p_years[1])
@@ -170,21 +167,27 @@ if page == "Movie List":
     if st.session_state.p_search:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(st.session_state.p_search, case=False)]
 
+    # --- UPDATED QUICK ADD SECTION FOR MOBILE ---
     st.sidebar.divider()
     st.sidebar.subheader("➕ Quick Add Movie")
 
     available_sources = get_unique_sources(df)
-    final_source = "Manual"
-    with st.sidebar.popover("📍 Select Source", use_container_width=True):
-        final_source = st.radio("Choose source:", available_sources)
-        if st.checkbox("Add new custom source?"):
-            custom = st.text_input("Enter source name:")
-            if custom: final_source = custom
+    
+    # Custom source logic moved to top level for mobile accessibility
+    use_custom = st.sidebar.checkbox("Add new custom source?", key="toggle_custom")
+    
+    if use_custom:
+        final_source = st.sidebar.text_input("Enter new source name:", key="custom_source_input")
+    else:
+        with st.sidebar.popover("📍 Select Existing Source", use_container_width=True):
+            final_source = st.radio("Choose source:", available_sources)
 
     add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
 
-    if st.sidebar.button("Search & Add"):
-        if add_search_query:
+    if st.sidebar.button("Search & Add", use_container_width=True):
+        if not final_source:
+            st.sidebar.warning("Please specify a source.")
+        elif add_search_query:
             url = f"http://www.omdbapi.com/?t={add_search_query}&apikey={OMDB_API_KEY}"
             res = requests.get(url).json()
             if res.get("Response") == "True":
@@ -193,6 +196,8 @@ if page == "Movie List":
                     st.sidebar.success(f"Added: {res.get('Title')}")
                     st.cache_data.clear()
                     st.rerun()
+            else:
+                st.sidebar.error("Movie not found.")
 
     # --- MAIN DISPLAY LOGIC ---
     if st.session_state.selected_movie_id:
