@@ -133,7 +133,6 @@ if page == "Movie List":
     st.sidebar.title("🔍 Filters")
     if st.sidebar.button("🏠 Back to Master Table", use_container_width=True):
         st.session_state.selected_movie_id = None
-        st.rerun()
 
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
