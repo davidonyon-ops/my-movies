@@ -267,11 +267,27 @@ if page == "Movie List":
             st.metric("Hype Score", f"{movie['Hype Score']} Lists")
             st.info(f"**📂 Lists:** {movie['Source List']}")
 
-        st.divider()
+st.divider()
         b1, b2, b3 = st.columns(3)
-        with b1: st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/", use_container_width=True)
-        with b2: st.link_button("🍅 Rotten Tomatoes", f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}", use_container_width=True)
-        with b3: st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
+        
+        with b1: 
+            # Standard Streamlit button (opens your native app)
+            st.link_button("🎥 IMDb", f"https://www.imdb.com/title/{movie['Const']}/", use_container_width=True)
+            
+        with b2: 
+            # Custom HTML button to force a new browser tab for RT
+            rt_url = f"https://www.rottentomatoes.com/search?search={movie['Title'].replace(' ', '%20')}"
+            st.markdown(f"""
+                <a href="{rt_url}" target="_blank" rel="noopener noreferrer" 
+                style="display: block; text-align: center; padding: 0.35rem; background-color: #262730; 
+                color: white; text-decoration: none; border-radius: 0.5rem; border: 1px solid rgba(250, 250, 250, 0.2); 
+                font-family: sans-serif; font-size: 1rem; transition: background-color 0.3s;">
+                🍅 Rotten Tomatoes</a>
+            """, unsafe_allow_html=True)
+            
+        with b3: 
+            # Standard Streamlit button (opens your native app)
+            st.link_button("📺 JustWatch", f"https://www.justwatch.com/uk/search?q={movie['Title'].replace(' ', '%20')}", use_container_width=True, type="primary")
 
     else:
         st.title("🎬 David's Movie Prioritizer")
