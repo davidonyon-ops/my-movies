@@ -107,7 +107,7 @@ def get_unique_sources(master_df):
             parts = [p.strip() for p in str(s).split(',')]
             sources.extend(parts)
     return sorted(list(set([s for s in sources if s and s != 'nan'])))
-
+    
 # --- 3. INITIALIZATION ---
 df = load_imdb_data()
 if "watched_ids" not in st.session_state:
@@ -137,6 +137,11 @@ if page == "Movie List":
     search_query = st.sidebar.text_input("Title Search:", key="p_search")
     hide_watched = st.sidebar.checkbox("Hide Watched Movies", value=True, key="p_hide")
     
+    # Extract unique genres from the dataframe
+    all_genres = sorted(list(set([g.strip() for genres in df['Genre'].dropna().astype(str) for g in genres.split(',') if g.strip() and g.strip() != "N/A"])))
+    
+    selected_genres = st.sidebar.multiselect("🎭 Filter by Genre:", all_genres, key="p_genres")
+    
     lists = sorted(list(set([i.strip() for s in df['Source List'].str.split(',') for i in s])))
     selected_lists = []
     with st.sidebar.popover("📂 Filter by CSV Name", use_container_width=True):
@@ -165,6 +170,9 @@ if page == "Movie List":
         filtered_df = filtered_df[filtered_df['Source List'].apply(lambda x: any(l in x for l in st.session_state.p_selected_lists))]
     if st.session_state.p_search:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(st.session_state.p_search, case=False)]
+    if st.session_state.p_genres:
+        # Keeps the movie if ANY of the selected genres match the movie's genres
+        filtered_df = filtered_df[filtered_df['Genre'].apply(lambda x: any(g in str(x) for g in st.session_state.p_genres))]
 
     # --- UPDATED QUICK ADD SECTION FOR MOBILE ---
     st.sidebar.divider()
