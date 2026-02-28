@@ -267,7 +267,7 @@ if page == "Movie List":
             st.metric("Hype Score", f"{movie['Hype Score']} Lists")
             st.info(f"**📂 Lists:** {movie['Source List']}")
 
-st.divider()
+        st.divider()
         b1, b2, b3 = st.columns(3)
         
         with b1: 
