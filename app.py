@@ -200,7 +200,40 @@ if page == "Movie List":
 
     # --- MAIN DISPLAY LOGIC ---
     if st.session_state.selected_movie_id:
+        # 1. Grab the currently selected movie details from the MASTER df to be safe
         movie = df[df['Const'] == st.session_state.selected_movie_id].iloc[0]
+        
+        # 2. Get the list of currently filtered IDs to establish our "Playlist" order
+        current_filtered_ids = filtered_df['Const'].tolist()
+        current_id = st.session_state.selected_movie_id
+        
+        prev_id, next_id = None, None
+        
+        # 3. Find the current movie's index and determine next/prev IDs
+        if current_id in current_filtered_ids:
+            current_index = current_filtered_ids.index(current_id)
+            total_movies = len(current_filtered_ids)
+            
+            if current_index > 0:
+                prev_id = current_filtered_ids[current_index - 1]
+            if current_index < total_movies - 1:
+                next_id = current_filtered_ids[current_index + 1]
+        
+        # 4. Render the Navigation Buttons at the top of the details page
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
+        with nav_col1:
+            if prev_id:
+                if st.button("⬅️ Previous Movie", use_container_width=True):
+                    st.session_state.selected_movie_id = prev_id
+                    st.rerun()
+        with nav_col3:
+            if next_id:
+                if st.button("Next Movie ➡️", use_container_width=True):
+                    st.session_state.selected_movie_id = next_id
+                    st.rerun()
+                    
+        st.divider() # Adds a clean visual break before the poster/details
+        
         poster_url = None
         try:
             url = f"http://www.omdbapi.com/?i={movie['Const']}&apikey={OMDB_API_KEY}"
