@@ -210,8 +210,12 @@ if page == "Movie List":
     if use_custom:
         final_source = st.sidebar.text_input("Enter new source name:", key="custom_source_input")
     else:
-        with st.sidebar.popover("📍 Select Existing Source", use_container_width=True):
-            final_source = st.radio("Choose source:", available_sources)
+        # Replaced the popover/radio combo with a mobile-friendly selectbox
+        final_source = st.sidebar.selectbox(
+            "📍 Select Existing Source:", 
+            available_sources,
+            key="existing_source_select"
+        )
 
     add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
     
