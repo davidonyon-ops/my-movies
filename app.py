@@ -157,8 +157,29 @@ if page == "Movie List":
     yr_min = int(df['Year'].min()) if not df.empty else 1900
     yr_max = int(df['Year'].max()) if not df.empty else 2026
     year_range = st.sidebar.slider("Release Year", yr_min, yr_max, key="p_years")
+    
+    # --- Sorting Controls ---
+    st.sidebar.divider()
+    st.sidebar.subheader("↕️ Sort Results")
+    
+    # Options that match your visible columns
+    sort_column = st.sidebar.selectbox(
+        "Sort By:", 
+        ["Hype Score", "IMDb Rating", "Year", "Title"],
+        key="p_sort_col"
+    )
+    sort_order = st.sidebar.radio(
+        "Order:", 
+        ["Descending", "Ascending"], 
+        horizontal=True,
+        key="p_sort_order"
+    )
+    
+    # Convert radio selection to boolean for pandas
+    is_ascending = True if sort_order == "Ascending" else False
 
     # Applying filters
+    # Applying filters AND Sorting
     filtered_df = df[
         (df['IMDb Rating'] >= st.session_state.p_rating) & 
         (df['Year'] >= st.session_state.p_years[0]) & (df['Year'] <= st.session_state.p_years[1])
@@ -171,8 +192,11 @@ if page == "Movie List":
     if st.session_state.p_search:
         filtered_df = filtered_df[filtered_df['Title'].str.contains(st.session_state.p_search, case=False)]
     if st.session_state.p_genres:
-        # Keeps the movie if ANY of the selected genres match the movie's genres
         filtered_df = filtered_df[filtered_df['Genre'].apply(lambda x: any(g in str(x) for g in st.session_state.p_genres))]
+
+    # NEW: Apply the sort state to the dataframe
+    filtered_df = filtered_df.sort_values(by=sort_column, ascending=is_ascending)
+
 
    # --- UPDATED QUICK ADD SECTION FOR MOBILE ---
     st.sidebar.divider()
