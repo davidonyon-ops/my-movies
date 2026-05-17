@@ -174,7 +174,7 @@ if page == "Movie List":
         # Keeps the movie if ANY of the selected genres match the movie's genres
         filtered_df = filtered_df[filtered_df['Genre'].apply(lambda x: any(g in str(x) for g in st.session_state.p_genres))]
 
-    # --- UPDATED QUICK ADD SECTION FOR MOBILE ---
+   # --- UPDATED QUICK ADD SECTION FOR MOBILE ---
     st.sidebar.divider()
     st.sidebar.subheader("➕ Quick Add Movie")
 
@@ -190,21 +190,31 @@ if page == "Movie List":
             final_source = st.radio("Choose source:", available_sources)
 
     add_search_query = st.sidebar.text_input("Search IMDb to add:", key="omdb_search")
+    
+    # NEW: Optional Year Field
+    add_search_year = st.sidebar.text_input("Release Year (Optional):", key="omdb_year", placeholder="e.g., 2021")
 
     if st.sidebar.button("Search & Add", use_container_width=True):
         if not final_source:
             st.sidebar.warning("Please specify a source.")
         elif add_search_query:
+            # Base URL using the 't' (title) parameter
             url = f"http://www.omdbapi.com/?t={add_search_query}&apikey={OMDB_API_KEY}"
+            
+            # Append the 'y' (year) parameter if the user provided one
+            if add_search_year.strip():
+                url += f"&y={add_search_year.strip()}"
+                
             res = requests.get(url).json()
+            
             if res.get("Response") == "True":
                 smart_source = f"{final_source} | {res.get('Year')[:4]} | {res.get('imdbRating')}⭐ | {res.get('imdbID')} | {res.get('Genre')} | {res.get('Director')} | {res.get('Actors')}"
                 if add_manual_movie(res.get("Title"), smart_source):
-                    st.sidebar.success(f"Added: {res.get('Title')}")
+                    st.sidebar.success(f"Added: {res.get('Title')} ({res.get('Year')})")
                     st.cache_data.clear()
                     st.rerun()
             else:
-                st.sidebar.error("Movie not found.")
+                st.sidebar.error("Movie not found. Try adjusting the title or year.")
 
     # --- MAIN DISPLAY LOGIC ---
     if st.session_state.selected_movie_id:
